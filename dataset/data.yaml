@@ -1,0 +1,11 @@
+path: dataset
+train: images/train
+val: images/val
+
+# Classes
+nc: 4
+names:
+  0: open_palm
+  1: thumbs_up
+  2: peace
+  3: fist

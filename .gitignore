@@ -1,0 +1,33 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# YOLO and PyTorch files
+*.pt
+runs/
+models/gesture_train/
+
+# Data logs
+data/attendance.csv
+data/test_attendance.csv
+
+# Dataset images and labels (optional, to keep repo clean)
+dataset/images/train/*
+dataset/images/val/*
+dataset/labels/train/*
+dataset/labels/val/*
+!dataset/images/train/.gitkeep
+!dataset/images/val/.gitkeep
+!dataset/labels/train/.gitkeep
+!dataset/labels/val/.gitkeep
+
+# IDEs
+.vscode/
+.idea/
