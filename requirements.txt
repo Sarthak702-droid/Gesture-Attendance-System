@@ -4,3 +4,5 @@ numpy
 mediapipe
 pandas
 supervision
+streamlit
+openpyxl

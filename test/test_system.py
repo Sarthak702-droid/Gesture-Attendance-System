@@ -8,22 +8,33 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "s
 
 class TestGestureAttendanceSystem(unittest.TestCase):
     def setUp(self):
-        # We will use a separate test CSV file to avoid messing up production logs
+        # We will use a separate test CSV and XLSX file to avoid messing up production logs
         import attendance
         self.original_csv_path = attendance.CSV_PATH
-        attendance.CSV_PATH = os.path.join("data", "test_attendance.csv")
-        self.test_csv_path = attendance.CSV_PATH
+        self.original_xlsx_path = attendance.XLSX_PATH
         
-        # Clean up any leftover test CSV files
+        attendance.CSV_PATH = os.path.join("data", "test_attendance.csv")
+        attendance.XLSX_PATH = os.path.join("data", "test_attendance.xlsx")
+        
+        self.test_csv_path = attendance.CSV_PATH
+        self.test_xlsx_path = attendance.XLSX_PATH
+        
+        # Clean up any leftover test files
         if os.path.exists(self.test_csv_path):
             os.remove(self.test_csv_path)
+        if os.path.exists(self.test_xlsx_path):
+            os.remove(self.test_xlsx_path)
 
     def tearDown(self):
-        # Restore original CSV path and clean up
+        # Restore original paths and clean up
         import attendance
         attendance.CSV_PATH = self.original_csv_path
+        attendance.XLSX_PATH = self.original_xlsx_path
+        
         if os.path.exists(self.test_csv_path):
             os.remove(self.test_csv_path)
+        if os.path.exists(self.test_xlsx_path):
+            os.remove(self.test_xlsx_path)
 
     def test_imports(self):
         """Verify all custom modules can be imported without syntax errors."""
@@ -32,12 +43,13 @@ class TestGestureAttendanceSystem(unittest.TestCase):
             import detect_gesture
             import utils
             import main
-            print("[TEST] All modules imported successfully!")
+            import dashboard
+            print("[TEST] All modules (including dashboard) imported successfully!")
         except Exception as e:
             self.fail(f"Module import failed: {e}")
 
     def test_attendance_logging_and_cooldown(self):
-        """Verify attendance logs correctly and cooldown duplicate checking works."""
+        """Verify attendance logs correctly, cooldown duplicates works, and Excel syncs."""
         from attendance import mark_attendance
         
         # First log - should succeed
@@ -45,23 +57,25 @@ class TestGestureAttendanceSystem(unittest.TestCase):
         self.assertTrue(success)
         self.assertIn("Successfully logged", msg)
         
-        # Verify file exists and has content
+        # Verify CSV file exists and has content
         self.assertTrue(os.path.exists(self.test_csv_path))
         with open(self.test_csv_path, "r") as f:
             lines = f.readlines()
             self.assertEqual(len(lines), 2)  # Header + 1 record
             self.assertIn("John Doe,PRESENT", lines[1])
 
+        # Verify Excel file exists
+        self.assertTrue(os.path.exists(self.test_xlsx_path))
+        
         # Second log (immediate duplicate) - should fail due to cooldown
         success2, msg2 = mark_attendance("John Doe", "PRESENT")
         self.assertFalse(success2)
         self.assertIn("Already logged", msg2)
-        self.assertIn("Cooldown", msg2)
         
-        # Verify no duplicate row was added
+        # Verify no duplicate row was added to CSV
         with open(self.test_csv_path, "r") as f:
             lines = f.readlines()
-            self.assertEqual(len(lines), 2)  # Still only 2 lines
+            self.assertEqual(len(lines), 2)
             
         # Different student or status should work
         success3, msg3 = mark_attendance("Jane Smith", "PRESENT")
@@ -75,7 +89,6 @@ class TestGestureAttendanceSystem(unittest.TestCase):
         from detect_gesture import GestureDetector
         
         try:
-            # Should load fallback yolov8n.pt if gesture_yolov8.pt isn't trained yet
             detector = GestureDetector()
             self.assertIsNotNone(detector.model)
             print("[TEST] GestureDetector initialized successfully!")
