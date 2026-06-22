@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import winsound
+import threading
+import time
 
 def play_beep_sound(success=True):
     """
@@ -115,3 +117,48 @@ def draw_corner_rect(frame, bbox, color=(0, 255, 0), thickness=2, length=20):
     # Bottom-Right corner
     cv2.line(frame, (x2, y2), (x2 - length, y2), color, thickness, cv2.LINE_AA)
     cv2.line(frame, (x2, y2), (x2, y2 - length), color, thickness, cv2.LINE_AA)
+
+class CameraStream:
+    """
+    Threaded Camera Streamer to handle IP cameras (RTSP), video files, or local webcams
+    without creating frames buffer lag. Constantly reads frames in the background.
+    """
+    def __init__(self, src):
+        self.stream = cv2.VideoCapture(src)
+        if isinstance(src, int):
+            self.stream.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.stream.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            
+        self.grabbed, self.frame = self.stream.read()
+        self.started = False
+        self.read_lock = threading.Lock()
+        
+    def start(self):
+        if self.started:
+            return self
+        self.started = True
+        self.thread = threading.Thread(target=self.update, args=())
+        self.thread.daemon = True
+        self.thread.start()
+        return self
+        
+    def update(self):
+        while self.started:
+            grabbed, frame = self.stream.read()
+            with self.read_lock:
+                self.grabbed = grabbed
+                if grabbed:
+                    self.frame = frame
+            time.sleep(0.01) # Sleep slightly to reduce CPU usage
+            
+    def read(self):
+        with self.read_lock:
+            frame_copy = self.frame.copy() if self.grabbed else None
+            return self.grabbed, frame_copy
+            
+    def release(self):
+        self.started = False
+        if hasattr(self, 'thread'):
+            self.thread.join(timeout=1.0)
+        self.stream.release()
+
