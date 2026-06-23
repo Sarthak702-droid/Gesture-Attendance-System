@@ -6,3 +6,4 @@ pandas
 supervision
 streamlit
 openpyxl
+scikit-learn

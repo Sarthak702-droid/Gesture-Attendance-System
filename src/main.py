@@ -17,9 +17,9 @@ def get_student_name():
         name = "Guest_Employee"
     print(f"[INFO] System initialized for employee: {name.upper()}")
     print("[INFO] Instructions:")
-    print("  ✋ Open Palm  -> Select 'IN' (Check-In)")
+    print("  👍 Thumbs Up   -> Select 'IN' (Check-In)")
     print("  ✌️ Peace Sign  -> Select 'OUT' (Check-Out)")
-    print("  👍 Thumbs Up   -> 'CONFIRM' (Logs to Excel and Closes)")
+    print("  ✋ Open Palm  -> 'CONFIRM' (Logs to Excel and Closes)")
     print("  ✊ Fist        -> 'CANCEL' pending state")
     print("="*50 + "\n")
     return name
@@ -55,9 +55,9 @@ def main():
     REQUIRED_FRAMES = 15  # 0.5 seconds at 30 FPS for fast response
     
     pending_status = None  # Can be "IN" or "OUT"
-    last_log_message = "Show Palm (✋) for IN or Peace (✌️) for OUT."
+    last_log_message = "Show Thumbs Up (👍) for IN or Peace (✌️) for OUT."
     
-    print(f"[INFO] Attendance ready. Show Palm (✋) or Peace (✌️) to begin.")
+    print(f"[INFO] Attendance ready. Show Thumbs Up (👍) or Peace (✌️) to begin.")
     
     while True:
         grabbed, frame = cap.read()
@@ -101,9 +101,9 @@ def main():
             
         # Check action validity based on current state
         is_valid_action = False
-        if detected_gesture in ["open_palm", "peace"]:
+        if detected_gesture in ["thumbs_up", "peace"] and pending_status is None:
             is_valid_action = True
-        elif detected_gesture == "thumbs_up" and pending_status is not None:
+        elif detected_gesture == "open_palm" and pending_status is not None:
             is_valid_action = True
         elif detected_gesture == "fist" and pending_status is not None:
             is_valid_action = True
@@ -132,19 +132,19 @@ def main():
             
         # Trigger Attendance on complete hold progress
         if consecutive_frames >= REQUIRED_FRAMES and active_gesture is not None:
-            if active_gesture == "open_palm":
+            if active_gesture == "thumbs_up" and pending_status is None:
                 pending_status = "IN"
-                last_log_message = "Selected: IN. Hold Thumbs Up (👍) to Confirm or Fist (✊) to Cancel."
+                last_log_message = "Selected: IN. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
                 play_beep_sound(success=True)
             elif active_gesture == "peace":
                 pending_status = "OUT"
-                last_log_message = "Selected: OUT. Hold Thumbs Up (👍) to Confirm or Fist (✊) to Cancel."
+                last_log_message = "Selected: OUT. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
                 play_beep_sound(success=True)
             elif active_gesture == "fist":
                 pending_status = None
-                last_log_message = "Cancelled. Show Palm (✋) or Peace (✌️) to restart."
+                last_log_message = "Cancelled. Show Thumbs Up (👍) or Peace (✌️) to restart."
                 play_beep_sound(success=False)
-            elif active_gesture == "thumbs_up" and pending_status is not None:
+            elif active_gesture == "open_palm" and pending_status is not None:
                 # CONFIRM & EXPORT PIPELINE
                 play_beep_sound(success=True)
                 
@@ -192,7 +192,7 @@ def main():
             consecutive_frames = 0
             
         # Draw HUD overlays on frame
-        draw_premium_hud(frame, active_gesture if active_gesture else "open_palm", hold_ratio, employee_name, last_log_message)
+        draw_premium_hud(frame, active_gesture if active_gesture else "thumbs_up", hold_ratio, employee_name, last_log_message)
         
         # Display current pending status if any
         if pending_status is not None:
