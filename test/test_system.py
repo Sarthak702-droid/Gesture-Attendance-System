@@ -95,6 +95,21 @@ class TestGestureAttendanceSystem(unittest.TestCase):
         
         success4, msg4 = mark_attendance("John Doe", "OUT", test_loc, test_evidence)
         self.assertTrue(success4)
+        
+        # Test Urgent Exit and Return Duration Calculation
+        success_exit, msg_exit = mark_attendance("John Doe", "URGENT_EXIT", test_loc, test_evidence)
+        self.assertTrue(success_exit)
+        
+        # Immediate return should work and log duration in seconds
+        success_ret, msg_ret = mark_attendance("John Doe", "URGENT_RETURN", test_loc, test_evidence)
+        self.assertTrue(success_ret)
+        
+        # Verify Duration column exists in last line and is populated
+        with open(self.test_csv_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            # Headers: Name, Status, Date, Day, Time, Location, Evidence_Path, Timestamp, Duration
+            self.assertIn("John Doe,URGENT_RETURN", lines[-1])
+            self.assertTrue(any(term in lines[-1] for term in ["secs", "mins"]))
 
     def test_gesture_detector_init(self):
         """Verify detector initializes with MediaPipe Hands."""

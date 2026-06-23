@@ -20,6 +20,8 @@ def get_student_name():
     print("[INFO] Instructions:")
     print("  👍 Thumbs Up   -> Select 'IN' (Check-In)")
     print("  ✌️ Peace Sign  -> Select 'OUT' (Check-Out)")
+    print("  ☝️ Index Up    -> Select 'URGENT EXIT' (Break Out)")
+    print("  🖖 3-Fingers   -> Select 'URGENT RETURN' (Break In)")
     print("  ✋ Open Palm  -> 'CONFIRM' (Logs to Excel and Closes)")
     print("  ✊ Fist        -> 'CANCEL' pending state")
     print("="*50 + "\n")
@@ -77,10 +79,10 @@ def main():
     consecutive_frames = 0
     REQUIRED_FRAMES = 15  # 0.5 seconds at 30 FPS for fast response
     
-    pending_status = None  # Can be "IN" or "OUT"
-    last_log_message = "Show Thumbs Up (👍) for IN or Peace (✌️) for OUT."
+    pending_status = None  # Can be "IN", "OUT", "URGENT_EXIT", "URGENT_RETURN"
+    last_log_message = "Show Thumbs Up (👍) for IN, Peace (✌️) for OUT, Index Up (☝️) for Exit, or 3-Fingers for Return."
     
-    print(f"[INFO] Attendance ready. Show Thumbs Up (👍) or Peace (✌️) to begin.")
+    print(f"[INFO] Attendance ready. Show a selection gesture to begin.")
     
     while True:
         grabbed, frame = cap.read()
@@ -152,7 +154,7 @@ def main():
         hand_bbox = None
         
         for d in detections:
-            if d["class_name"] in ["open_palm", "peace", "thumbs_up", "fist"]:
+            if d["class_name"] in ["open_palm", "peace", "thumbs_up", "fist", "pointing_up", "three_fingers"]:
                 detected_gesture = d["class_name"]
                 hand_bbox = d["box"]
                 break
@@ -160,10 +162,12 @@ def main():
         # Draw hand bounding box if gesture detected
         if detected_gesture is not None and hand_bbox is not None:
             color_map = {
-                "open_palm": (255, 255, 0),    # Cyan
-                "peace": (255, 0, 255),        # Magenta
-                "thumbs_up": (0, 255, 0),      # Neon Green
-                "fist": (0, 0, 255)            # Red
+                "open_palm": (255, 255, 0),       # Cyan
+                "peace": (255, 0, 255),           # Magenta
+                "thumbs_up": (0, 255, 0),         # Neon Green
+                "fist": (0, 0, 255),               # Red
+                "pointing_up": (0, 165, 255),      # Orange
+                "three_fingers": (255, 191, 0)     # Amber/Yellowish
             }
             box_color = color_map.get(detected_gesture, (255, 255, 255))
             draw_corner_rect(frame, hand_bbox, color=box_color, thickness=3)
@@ -174,14 +178,14 @@ def main():
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2, cv2.LINE_AA)
             
         # 3. Check action validity based on current state and face verification
-        face_required_gestures = ["thumbs_up", "peace", "open_palm"]
+        face_required_gestures = ["thumbs_up", "peace", "open_palm", "pointing_up", "three_fingers"]
         face_ok = True
         if face_recognizer is not None and detected_gesture in face_required_gestures:
             face_ok = face_verified
             
         is_valid_action = False
         if face_ok:
-            if detected_gesture in ["thumbs_up", "peace"] and pending_status is None:
+            if detected_gesture in ["thumbs_up", "peace", "pointing_up", "three_fingers"] and pending_status is None:
                 is_valid_action = True
             elif detected_gesture == "open_palm" and pending_status is not None:
                 is_valid_action = True
@@ -219,13 +223,21 @@ def main():
                 pending_status = "IN"
                 last_log_message = "Selected: IN. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
                 play_beep_sound(success=True)
-            elif active_gesture == "peace":
+            elif active_gesture == "peace" and pending_status is None:
                 pending_status = "OUT"
                 last_log_message = "Selected: OUT. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
                 play_beep_sound(success=True)
+            elif active_gesture == "pointing_up" and pending_status is None:
+                pending_status = "URGENT_EXIT"
+                last_log_message = "Selected: URGENT EXIT. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
+                play_beep_sound(success=True)
+            elif active_gesture == "three_fingers" and pending_status is None:
+                pending_status = "URGENT_RETURN"
+                last_log_message = "Selected: URGENT RETURN. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
+                play_beep_sound(success=True)
             elif active_gesture == "fist":
                 pending_status = None
-                last_log_message = "Cancelled. Show Thumbs Up (👍) or Peace (✌️) to restart."
+                last_log_message = "Cancelled. Show a gesture (👍/✌️/☝️/3-Fingers) to select status."
                 play_beep_sound(success=False)
             elif active_gesture == "open_palm" and pending_status is not None:
                 # CONFIRM & EXPORT PIPELINE
@@ -244,7 +256,7 @@ def main():
                 else:
                     final_location = f"{config.DEFAULT_LATITUDE:.5f}, {config.DEFAULT_LONGITUDE:.5f} (Default)"
                     
-                # Mark Attendance (IN / OUT)
+                # Mark Attendance (IN / OUT / URGENT_EXIT / URGENT_RETURN)
                 success, msg = mark_attendance(employee_name, pending_status, final_location, evidence_path)
                 
                 # Visual Confirmation Screen
@@ -256,7 +268,7 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3, cv2.LINE_AA)
                 cv2.putText(frame, f"Name: {employee_name.upper()}", (w // 2 - 250, h // 2 + 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-                cv2.putText(frame, f"Status: {pending_status}", (w // 2 - 250, h // 2 + 50),
+                cv2.putText(frame, f"Status: {pending_status.replace('_', ' ')}", (w // 2 - 250, h // 2 + 50),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
                 cv2.putText(frame, f"Loc: {final_location}", (w // 2 - 250, h // 2 + 90),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
@@ -275,11 +287,12 @@ def main():
             consecutive_frames = 0
             
         # Draw HUD overlays on frame
-        draw_premium_hud(frame, active_gesture if active_gesture else "thumbs_up", hold_ratio, employee_name, last_log_message)
+        hud_active_gesture = active_gesture if active_gesture else "thumbs_up"
+        draw_premium_hud(frame, hud_active_gesture, hold_ratio, employee_name, last_log_message)
         
         # Display current pending status if any
         if pending_status is not None:
-            cv2.putText(frame, f"PENDING: {pending_status}", (20, 100),
+            cv2.putText(frame, f"PENDING: {pending_status.replace('_', ' ')}", (20, 100),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
             # Display GPS status in main loop HUD
             cv2.putText(frame, location_hud, (20, 130),

@@ -45,8 +45,8 @@ def sync_to_excel():
             # Align data columns
             for row in worksheet.iter_rows(min_row=2, max_row=len(df) + 1, min_col=1, max_col=len(df.columns)):
                 for cell in row:
-                    # Center align status, date, day, time, location, evidence and timestamp columns
-                    if cell.column in [2, 3, 4, 5, 6, 7, 8]:
+                    # Center align status, date, day, time, location, evidence, timestamp, and duration columns
+                    if cell.column in [2, 3, 4, 5, 6, 7, 8, 9]:
                         cell.alignment = center_alignment
             
             # Auto-fit column widths to prevent truncation
@@ -107,11 +107,36 @@ def mark_attendance(name, status, location, evidence_path):
             
     # Append the new attendance record
     try:
+        duration_str = ""
+        if status.strip().upper() == "URGENT_RETURN":
+            if file_exists:
+                try:
+                    with open(CSV_PATH, "r", newline="", encoding="utf-8") as f:
+                        reader = csv.reader(f)
+                        rows = list(reader)
+                        
+                        # Search in reverse for last URGENT_EXIT of this user
+                        for row in reversed(rows[1:]):
+                            if len(row) >= 8:
+                                row_name, row_status, row_ts_str = row[0], row[1], row[7]
+                                if row_name.strip().lower() == name.strip().lower() and row_status.strip().upper() == "URGENT_EXIT":
+                                    exit_ts = int(row_ts_str)
+                                    time_diff = current_ts - exit_ts
+                                    if time_diff < 60:
+                                        duration_str = f"{time_diff} secs"
+                                    else:
+                                        duration_str = f"{time_diff / 60.0:.1f} mins"
+                                    break
+                except Exception as e:
+                    print(f"[WARNING] Failed to parse last exit log: {e}")
+            if not duration_str:
+                duration_str = "N/A"
+                
         write_header = not file_exists or os.stat(CSV_PATH).st_size == 0
         with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if write_header:
-                writer.writerow(["Name", "Status", "Date", "Day", "Time", "Location", "Evidence_Path", "Timestamp"])
+                writer.writerow(["Name", "Status", "Date", "Day", "Time", "Location", "Evidence_Path", "Timestamp", "Duration"])
             writer.writerow([
                 name.strip(), 
                 status.strip().upper(), 
@@ -120,7 +145,8 @@ def mark_attendance(name, status, location, evidence_path):
                 time_str, 
                 location.strip(), 
                 evidence_path.strip(), 
-                current_ts
+                current_ts,
+                duration_str
             ])
             
         # Sync to formatted Excel sheet

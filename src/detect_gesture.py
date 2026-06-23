@@ -103,8 +103,33 @@ class GestureDetector:
                 class_id = -1
                 confidence = 0.0
                 
-                # Mode A: ML Model Inference
-                if self.ml_model_loaded and self.classifier is not None:
+                # Rule-based calculation for special gestures & fallback checks
+                landmarks = hand_landmarks.landmark
+                index_extended = landmarks[8].y < landmarks[6].y
+                middle_extended = landmarks[12].y < landmarks[10].y
+                ring_extended = landmarks[16].y < landmarks[14].y
+                pinky_extended = landmarks[20].y < landmarks[18].y
+                
+                # Thumb logic: Thumb tip distance to Index knuckle
+                thumb_tip = np.array([landmarks[4].x, landmarks[4].y])
+                index_knuckle = np.array([landmarks[5].x, landmarks[5].y])
+                thumb_dist = np.linalg.norm(thumb_tip - index_knuckle)
+                thumb_extended = thumb_dist > 0.08
+                
+                # 1. Check for special rule-based gestures first
+                # ☝️ Pointing Up: Only Index finger extended
+                if index_extended and not middle_extended and not ring_extended and not pinky_extended:
+                    gesture = "pointing_up"
+                    class_id = 4
+                    confidence = 1.0
+                # Three Fingers: Index, Middle, Ring open, Pinky closed
+                elif index_extended and middle_extended and ring_extended and not pinky_extended:
+                    gesture = "three_fingers"
+                    class_id = 5
+                    confidence = 1.0
+                    
+                # 2. Mode A: ML Model Inference for standard gestures (if not class_id determined yet)
+                if class_id == -1 and self.ml_model_loaded and self.classifier is not None:
                     try:
                         coords = get_normalized_landmarks(hand_landmarks.landmark)
                         
@@ -120,20 +145,8 @@ class GestureDetector:
                     except Exception as e:
                         print(f"[WARNING] ML inference error: {e}. Retrying with mathematical rules.")
                         
-                # Mode B: Rule-based fallback if ML fails or is not loaded
+                # 3. Mode B: Rule-based fallback for standard gestures
                 if class_id == -1:
-                    landmarks = hand_landmarks.landmark
-                    index_extended = landmarks[8].y < landmarks[6].y
-                    middle_extended = landmarks[12].y < landmarks[10].y
-                    ring_extended = landmarks[16].y < landmarks[14].y
-                    pinky_extended = landmarks[20].y < landmarks[18].y
-                    
-                    # Thumb logic: Thumb tip distance to Index knuckle
-                    thumb_tip = np.array([landmarks[4].x, landmarks[4].y])
-                    index_knuckle = np.array([landmarks[5].x, landmarks[5].y])
-                    thumb_dist = np.linalg.norm(thumb_tip - index_knuckle)
-                    thumb_extended = thumb_dist > 0.08
-                    
                     # ✋ Open Palm: All 4 major fingers open
                     if index_extended and middle_extended and ring_extended and pinky_extended:
                         gesture = "open_palm"
