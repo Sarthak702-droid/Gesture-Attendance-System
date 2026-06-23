@@ -16,7 +16,9 @@ models/gesture_train/
 
 # Data logs
 data/attendance.csv
+data/attendance.xlsx
 data/test_attendance.csv
+data/test_attendance.xlsx
 data/faces/
 data/evidence/
 
