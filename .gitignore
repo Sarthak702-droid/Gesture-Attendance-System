@@ -17,6 +17,8 @@ models/gesture_train/
 # Data logs
 data/attendance.csv
 data/test_attendance.csv
+data/faces/
+data/evidence/
 
 # Dataset images and labels (optional, to keep repo clean)
 dataset/images/train/*

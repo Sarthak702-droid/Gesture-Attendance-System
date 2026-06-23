@@ -1,6 +1,7 @@
 import cv2
 import os
 import time
+import pickle
 from detect_gesture import GestureDetector
 from attendance import mark_attendance
 from utils import draw_premium_hud, draw_corner_rect, play_beep_sound, CameraStream
@@ -34,6 +35,28 @@ def main():
     
     # Initialize MediaPipe gesture detector
     detector = GestureDetector()
+    
+    # Load Face Recognizer if trained
+    face_model_path = os.path.join("models", "face_recognizer.xml")
+    face_labels_path = os.path.join("models", "face_labels.pkl")
+    face_recognizer = None
+    face_labels = {}
+    face_detector = None
+    
+    if os.path.exists(face_model_path) and os.path.exists(face_labels_path):
+        try:
+            import mediapipe as mp
+            mp_face = mp.solutions.face_detection
+            face_detector = mp_face.FaceDetection(min_detection_confidence=0.6)
+            face_recognizer = cv2.face.LBPHFaceRecognizer_create()
+            face_recognizer.read(face_model_path)
+            with open(face_labels_path, "rb") as f:
+                face_labels = pickle.load(f)
+            print("[INFO] Face recognition system initialized successfully.")
+        except Exception as e:
+            print(f"[WARNING] Failed to load face recognizer: {e}")
+    else:
+        print("[WARNING] Face recognition model or labels map not found. Running in gesture-only bypass mode.")
     
     # Start Camera Stream
     print(f"[INFO] Initializing camera stream from source: {config.CAMERA_SOURCE}")
@@ -71,7 +94,58 @@ def main():
             
         h, w, _ = frame.shape
         
-        # Run MediaPipe Hands detector
+        # 1. Run Face Detection & Recognition
+        face_verified = False
+        face_name_detected = "UNKNOWN"
+        face_bbox = None
+        
+        if face_detector is not None and face_recognizer is not None:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            face_results = face_detector.process(rgb_frame)
+            
+            if face_results.detections:
+                detection = face_results.detections[0]
+                bbox_data = detection.location_data.relative_bounding_box
+                fx = int(bbox_data.xmin * w)
+                fy = int(bbox_data.ymin * h)
+                fwidth = int(bbox_data.width * w)
+                fheight = int(bbox_data.height * h)
+                
+                # Clamp coordinates to frame boundary
+                fx1 = max(0, fx)
+                fy1 = max(0, fy)
+                fx2 = min(w, fx + fwidth)
+                fy2 = min(h, fy + fheight)
+                
+                face_bbox = (fx1, fy1, fx2, fy2)
+                
+                # Crop and predict
+                face_crop = frame[fy1:fy2, fx1:fx2]
+                if face_crop.size > 0:
+                    gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+                    resized_crop = cv2.resize(gray_crop, (200, 200), interpolation=cv2.INTER_AREA)
+                    
+                    label_id, confidence = face_recognizer.predict(resized_crop)
+                    # For LBPH, confidence represents distance (lower distance means better match)
+                    if confidence < 95.0:
+                        face_name_detected = face_labels.get(label_id, "UNKNOWN")
+                        
+                        # Match login employee name against face name (case-insensitive substring check)
+                        login_name_clean = employee_name.strip().lower()
+                        detected_name_clean = face_name_detected.lower()
+                        
+                        if login_name_clean in detected_name_clean or detected_name_clean in login_name_clean:
+                            face_verified = True
+                            
+        # Draw Face Overlay
+        if face_bbox is not None:
+            face_color = (0, 255, 0) if face_verified else (0, 0, 255)
+            draw_corner_rect(frame, face_bbox, color=face_color, thickness=2)
+            face_label_text = f"{face_name_detected.upper()} (VERIFIED)" if face_verified else "FACE UNVERIFIED / MISMATCH"
+            cv2.putText(frame, face_label_text, (face_bbox[0], face_bbox[1] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, face_color, 2, cv2.LINE_AA)
+        
+        # 2. Run MediaPipe Hands detector
         detections = detector.detect(frame, conf_threshold=0.60)
         
         detected_gesture = None
@@ -99,14 +173,23 @@ def main():
             cv2.putText(frame, label_text, (hand_bbox[0], hand_bbox[1] - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2, cv2.LINE_AA)
             
-        # Check action validity based on current state
+        # 3. Check action validity based on current state and face verification
+        face_required_gestures = ["thumbs_up", "peace", "open_palm"]
+        face_ok = True
+        if face_recognizer is not None and detected_gesture in face_required_gestures:
+            face_ok = face_verified
+            
         is_valid_action = False
-        if detected_gesture in ["thumbs_up", "peace"] and pending_status is None:
-            is_valid_action = True
-        elif detected_gesture == "open_palm" and pending_status is not None:
-            is_valid_action = True
-        elif detected_gesture == "fist" and pending_status is not None:
-            is_valid_action = True
+        if face_ok:
+            if detected_gesture in ["thumbs_up", "peace"] and pending_status is None:
+                is_valid_action = True
+            elif detected_gesture == "open_palm" and pending_status is not None:
+                is_valid_action = True
+            elif detected_gesture == "fist" and pending_status is not None:
+                is_valid_action = True
+        else:
+            if detected_gesture in face_required_gestures:
+                last_log_message = "Face verification required! Show your face clearly."
             
         if is_valid_action:
             if detected_gesture == active_gesture:
@@ -205,7 +288,14 @@ def main():
             # Display GPS status
             cv2.putText(frame, location_hud, (20, 100),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255) if gps_lat else (0, 165, 255), 2, cv2.LINE_AA)
-
+                        
+        # Display face verification status on HUD
+        if face_recognizer is not None:
+            face_status_text = "FACE: VERIFIED" if face_verified else "FACE: UNVERIFIED"
+            face_status_color = (0, 255, 0) if face_verified else (0, 0, 255)
+            cv2.putText(frame, face_status_text, (20, 160 if pending_status else 130),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, face_status_color, 2, cv2.LINE_AA)
+ 
         # Show final frame
         cv2.imshow("Gesture Attendance System", frame)
         
@@ -222,9 +312,9 @@ def main():
             # Rerun main to prompt name
             main()
             return
-
+ 
     cap.release()
     cv2.destroyAllWindows()
-
+ 
 if __name__ == "__main__":
     main()
