@@ -28,7 +28,7 @@ def sync_to_excel():
             workbook = writer.book
             worksheet = writer.sheets["Attendance_Records"]
             
-            # Format header cells (make them bold and add light grey background)
+            # Format header cells (make them bold and add light blue background)
             from openpyxl.styles import Font, PatternFill, Alignment
             
             header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
@@ -46,10 +46,10 @@ def sync_to_excel():
             for row in worksheet.iter_rows(min_row=2, max_row=len(df) + 1, min_col=1, max_col=len(df.columns)):
                 for cell in row:
                     # Center align status, date, time and timestamp columns
-                    if cell.column in [2, 3, 4, 5]:
+                    if cell.column in [2, 3, 4, 5, 6, 7]:
                         cell.alignment = center_alignment
             
-            # Auto-fit column widths to prevent truncation (### or hidden text)
+            # Auto-fit column widths to prevent truncation
             for col in worksheet.columns:
                 max_len = 0
                 col_letter = col[0].column_letter
@@ -63,9 +63,9 @@ def sync_to_excel():
     except Exception as e:
         print(f"[WARNING] Failed to sync to Excel: {e}")
 
-def mark_attendance(name, status):
+def mark_attendance(name, status, location, evidence_path):
     """
-    Appends a new attendance record to the CSV file.
+    Appends a new attendance record (including location & evidence snapshot) to the CSV.
     Prevents duplicate entries within the cooldown window (5 minutes).
     Auto-syncs the logs to a formatted Excel file.
     """
@@ -88,8 +88,8 @@ def mark_attendance(name, status):
                 
                 # Check rows from most recent to oldest
                 for row in reversed(rows[1:]):  # Skip header row
-                    if len(row) >= 5:
-                        row_name, row_status, _, _, row_ts_str = row[0], row[1], row[2], row[3], row[4]
+                    if len(row) >= 7:
+                        row_name, row_status, _, _, _, _, row_ts_str = row[0], row[1], row[2], row[3], row[4], row[5], row[6]
                         try:
                             row_ts = int(row_ts_str)
                             if row_name.strip().lower() == name.strip().lower() and row_status.strip().upper() == status.strip().upper():
@@ -110,8 +110,16 @@ def mark_attendance(name, status):
         with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if write_header:
-                writer.writerow(["Name", "Status", "Date", "Time", "Timestamp"])
-            writer.writerow([name.strip(), status.strip().upper(), date_str, time_str, current_ts])
+                writer.writerow(["Name", "Status", "Date", "Time", "Location", "Evidence_Path", "Timestamp"])
+            writer.writerow([
+                name.strip(), 
+                status.strip().upper(), 
+                date_str, 
+                time_str, 
+                location.strip(), 
+                evidence_path.strip(), 
+                current_ts
+            ])
             
         # Sync to formatted Excel sheet
         sync_to_excel()

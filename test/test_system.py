@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 import numpy as np
+from unittest.mock import MagicMock, patch
 
 # Add src to python path so we can import modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
@@ -39,12 +40,14 @@ class TestGestureAttendanceSystem(unittest.TestCase):
     def test_imports(self):
         """Verify all custom modules can be imported without syntax errors."""
         try:
+            import config
             import attendance
             import detect_gesture
             import utils
             import main
             import dashboard
-            print("[TEST] All modules (including dashboard) imported successfully!")
+            import gps_server
+            print("[TEST] All modules imported successfully!")
         except Exception as e:
             self.fail(f"Module import failed: {e}")
 
@@ -52,46 +55,51 @@ class TestGestureAttendanceSystem(unittest.TestCase):
         """Verify attendance logs correctly, cooldown duplicates works, and Excel syncs."""
         from attendance import mark_attendance
         
+        test_loc = "28.6139, 77.2090"
+        test_evidence = "data/evidence/test_snap.jpg"
+        
         # First log - should succeed
-        success, msg = mark_attendance("John Doe", "PRESENT")
+        success, msg = mark_attendance("John Doe", "PRESENT", test_loc, test_evidence)
         self.assertTrue(success)
         self.assertIn("Successfully logged", msg)
         
         # Verify CSV file exists and has content
         self.assertTrue(os.path.exists(self.test_csv_path))
-        with open(self.test_csv_path, "r") as f:
+        with open(self.test_csv_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
             self.assertEqual(len(lines), 2)  # Header + 1 record
             self.assertIn("John Doe,PRESENT", lines[1])
+            self.assertIn(test_loc, lines[1])
+            self.assertIn(test_evidence, lines[1])
 
         # Verify Excel file exists
         self.assertTrue(os.path.exists(self.test_xlsx_path))
         
         # Second log (immediate duplicate) - should fail due to cooldown
-        success2, msg2 = mark_attendance("John Doe", "PRESENT")
+        success2, msg2 = mark_attendance("John Doe", "PRESENT", test_loc, test_evidence)
         self.assertFalse(success2)
         self.assertIn("Already logged", msg2)
         
         # Verify no duplicate row was added to CSV
-        with open(self.test_csv_path, "r") as f:
+        with open(self.test_csv_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
             self.assertEqual(len(lines), 2)
             
         # Different student or status should work
-        success3, msg3 = mark_attendance("Jane Smith", "PRESENT")
+        success3, msg3 = mark_attendance("Jane Smith", "PRESENT", test_loc, test_evidence)
         self.assertTrue(success3)
         
-        success4, msg4 = mark_attendance("John Doe", "ABSENT")
+        success4, msg4 = mark_attendance("John Doe", "ABSENT", test_loc, test_evidence)
         self.assertTrue(success4)
 
     def test_gesture_detector_init(self):
-        """Verify detector initializes (even with fallback to yolov8n.pt)."""
+        """Verify detector initializes with MediaPipe Hands."""
         from detect_gesture import GestureDetector
         
         try:
             detector = GestureDetector()
-            self.assertIsNotNone(detector.model)
-            print("[TEST] GestureDetector initialized successfully!")
+            self.assertIsNotNone(detector.hands)
+            print("[TEST] GestureDetector MediaPipe hands initialized successfully!")
             
             # Run inference on a blank dummy image
             dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -100,6 +108,28 @@ class TestGestureAttendanceSystem(unittest.TestCase):
             print(f"[TEST] Run mock detection. Number of detections found: {len(detections)}")
         except Exception as e:
             self.fail(f"Gesture detector test failed: {e}")
+
+    @patch('cv2.VideoCapture')
+    def test_threaded_camera_stream(self, mock_vc):
+        """Verify threaded CameraStream starts and releases using mocked cv2.VideoCapture."""
+        # Set up mock returns
+        mock_instance = MagicMock()
+        mock_instance.read.return_value = (True, np.zeros((480, 640, 3), dtype=np.uint8))
+        mock_vc.return_value = mock_instance
+        
+        from utils import CameraStream
+        stream = CameraStream(0)
+        self.assertFalse(stream.started)
+        
+        stream.start()
+        self.assertTrue(stream.started)
+        
+        grabbed, frame = stream.read()
+        self.assertTrue(grabbed)
+        self.assertIsNotNone(frame)
+        
+        stream.release()
+        self.assertFalse(stream.started)
 
 if __name__ == "__main__":
     unittest.main()
