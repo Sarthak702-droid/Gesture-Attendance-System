@@ -16,6 +16,11 @@ def get_student_name():
     if not name:
         name = "Guest_Employee"
     print(f"[INFO] System initialized for employee: {name.upper()}")
+    print("[INFO] Instructions:")
+    print("  ✋ Open Palm  -> Select 'IN' (Check-In)")
+    print("  ✌️ Peace Sign  -> Select 'OUT' (Check-Out)")
+    print("  👍 Thumbs Up   -> 'CONFIRM' (Logs to Excel and Closes)")
+    print("  ✊ Fist        -> 'CANCEL' pending state")
     print("="*50 + "\n")
     return name
 
@@ -45,10 +50,14 @@ def main():
     cv2.resizeWindow("Gesture Attendance System", 1000, 750)
     
     # Bounding box & tracking states
-    consecutive_palm_frames = 0
-    REQUIRED_PALM_FRAMES = 15  # 0.5 seconds at 30 FPS for fast response
+    active_gesture = None
+    consecutive_frames = 0
+    REQUIRED_FRAMES = 15  # 0.5 seconds at 30 FPS for fast response
     
-    print(f"[INFO] Attendance ready. Show Palm sign (✋) to log check-in.")
+    pending_status = None  # Can be "IN" or "OUT"
+    last_log_message = "Show Palm (✋) for IN or Peace (✌️) for OUT."
+    
+    print(f"[INFO] Attendance ready. Show Palm (✋) or Peace (✌️) to begin.")
     
     while True:
         grabbed, frame = cap.read()
@@ -65,27 +74,52 @@ def main():
         # Run MediaPipe Hands detector
         detections = detector.detect(frame, conf_threshold=0.60)
         
-        palm_active = False
+        detected_gesture = None
         hand_bbox = None
         
         for d in detections:
-            if d["class_name"] == "open_palm":
-                palm_active = True
+            if d["class_name"] in ["open_palm", "peace", "thumbs_up", "fist"]:
+                detected_gesture = d["class_name"]
                 hand_bbox = d["box"]
                 break
                 
-        # Draw hand bounding box if Palm detected
-        if palm_active and hand_bbox is not None:
-            draw_corner_rect(frame, hand_bbox, color=(255, 255, 0), thickness=3) # Neon Cyan
-            cv2.putText(frame, "PALM DETECTED", (hand_bbox[0], hand_bbox[1] - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2, cv2.LINE_AA)
+        # Draw hand bounding box if gesture detected
+        if detected_gesture is not None and hand_bbox is not None:
+            color_map = {
+                "open_palm": (255, 255, 0),    # Cyan
+                "peace": (255, 0, 255),        # Magenta
+                "thumbs_up": (0, 255, 0),      # Neon Green
+                "fist": (0, 0, 255)            # Red
+            }
+            box_color = color_map.get(detected_gesture, (255, 255, 255))
+            draw_corner_rect(frame, hand_bbox, color=box_color, thickness=3)
             
-            consecutive_palm_frames += 1
+            # Label overlay above the box
+            label_text = f"{detected_gesture.upper()}"
+            cv2.putText(frame, label_text, (hand_bbox[0], hand_bbox[1] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2, cv2.LINE_AA)
+            
+        # Check action validity based on current state
+        is_valid_action = False
+        if detected_gesture in ["open_palm", "peace"]:
+            is_valid_action = True
+        elif detected_gesture == "thumbs_up" and pending_status is not None:
+            is_valid_action = True
+        elif detected_gesture == "fist" and pending_status is not None:
+            is_valid_action = True
+            
+        if is_valid_action:
+            if detected_gesture == active_gesture:
+                consecutive_frames += 1
+            else:
+                active_gesture = detected_gesture
+                consecutive_frames = 1
         else:
-            consecutive_palm_frames = 0
+            active_gesture = None
+            consecutive_frames = 0
             
         # Calculate hold progress ratio
-        hold_ratio = min(1.0, consecutive_palm_frames / REQUIRED_PALM_FRAMES)
+        hold_ratio = min(1.0, consecutive_frames / REQUIRED_FRAMES)
         
         # Format Geolocation text for screen HUD
         gps_lat = gps_server.GPS_DATA["latitude"]
@@ -93,60 +127,86 @@ def main():
         
         if gps_lat is not None and gps_lon is not None:
             location_hud = f"GPS: CONNECTED ({gps_lat:.5f}, {gps_lon:.5f})"
-            status_color = (0, 255, 0) # Green
         else:
             location_hud = f"GPS SCAN: Open http://{local_ip}:5000 on mobile"
-            status_color = (0, 165, 255) # Orange/Amber
             
-        # 1. Trigger Attendance on complete hold progress
-        if consecutive_palm_frames >= REQUIRED_PALM_FRAMES:
-            # Play beep sound
-            play_beep_sound(success=True)
-            
-            # Save Evidence Snapshot
-            os.makedirs(config.EVIDENCE_DIR, exist_ok=True)
-            timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-            evidence_filename = f"{employee_name.replace(' ', '_')}_{timestamp_str}.jpg"
-            evidence_path = os.path.join(config.EVIDENCE_DIR, evidence_filename)
-            
-            # Save clean frame before UI elements or landmarks are drawn
-            # (MediaPipe draws on 'frame' so we copy the original read if needed, 
-            # but standard BGR frame is okay since landmarks show the actual palm position as proof!)
-            cv2.imwrite(evidence_path, frame)
-            
-            # Resolve GPS Coordinates
-            if gps_lat is not None and gps_lon is not None:
-                final_location = f"{gps_lat:.5f}, {gps_lon:.5f}"
-            else:
-                final_location = f"{config.DEFAULT_LATITUDE:.5f}, {config.DEFAULT_LONGITUDE:.5f} (Default)"
+        # Trigger Attendance on complete hold progress
+        if consecutive_frames >= REQUIRED_FRAMES and active_gesture is not None:
+            if active_gesture == "open_palm":
+                pending_status = "IN"
+                last_log_message = "Selected: IN. Hold Thumbs Up (👍) to Confirm or Fist (✊) to Cancel."
+                play_beep_sound(success=True)
+            elif active_gesture == "peace":
+                pending_status = "OUT"
+                last_log_message = "Selected: OUT. Hold Thumbs Up (👍) to Confirm or Fist (✊) to Cancel."
+                play_beep_sound(success=True)
+            elif active_gesture == "fist":
+                pending_status = None
+                last_log_message = "Cancelled. Show Palm (✋) or Peace (✌️) to restart."
+                play_beep_sound(success=False)
+            elif active_gesture == "thumbs_up" and pending_status is not None:
+                # CONFIRM & EXPORT PIPELINE
+                play_beep_sound(success=True)
                 
-            # Log to CSV/Excel
-            success, msg = mark_attendance(employee_name, "PRESENT", final_location, evidence_path)
-            
-            # Show visual confirmation on screen for 2.5 seconds
-            confirm_overlay = frame.copy()
-            cv2.rectangle(confirm_overlay, (0, 0), (w, h), (20, 20, 20), -1)
-            cv2.addWeighted(confirm_overlay, 0.8, frame, 0.2, 0, frame)
-            
-            cv2.putText(frame, "ATTENDANCE LOGGED!", (w // 2 - 250, h // 2 - 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3, cv2.LINE_AA)
-            cv2.putText(frame, f"Name: {employee_name.upper()}", (w // 2 - 250, h // 2 + 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-            cv2.putText(frame, f"Loc: {final_location}", (w // 2 - 250, h // 2 + 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-            cv2.putText(frame, "Closing camera feed...", (w // 2 - 250, h // 2 + 100),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1, cv2.LINE_AA)
-            
-            cv2.imshow("Gesture Attendance System", frame)
-            cv2.waitKey(2500)
-            
-            print(f"[SUCCESS] Attendance logged for {employee_name} at {final_location}!")
-            print(f"[SUCCESS] Evidence snapshot saved to: {evidence_path}")
-            break  # Stop camera and exit program immediately
+                # Save Evidence Snapshot
+                os.makedirs(config.EVIDENCE_DIR, exist_ok=True)
+                timestamp_str = time.strftime("%Y%m%d_%H%M%S")
+                evidence_filename = f"{employee_name.replace(' ', '_')}_{pending_status}_{timestamp_str}.jpg"
+                evidence_path = os.path.join(config.EVIDENCE_DIR, evidence_filename)
+                cv2.imwrite(evidence_path, frame)
+                
+                # Resolve GPS Coordinates
+                if gps_lat is not None and gps_lon is not None:
+                    final_location = f"{gps_lat:.5f}, {gps_lon:.5f}"
+                else:
+                    final_location = f"{config.DEFAULT_LATITUDE:.5f}, {config.DEFAULT_LONGITUDE:.5f} (Default)"
+                    
+                # Mark Attendance (IN / OUT)
+                success, msg = mark_attendance(employee_name, pending_status, final_location, evidence_path)
+                
+                # Visual Confirmation Screen
+                confirm_overlay = frame.copy()
+                cv2.rectangle(confirm_overlay, (0, 0), (w, h), (20, 20, 20), -1)
+                cv2.addWeighted(confirm_overlay, 0.8, frame, 0.2, 0, frame)
+                
+                cv2.putText(frame, "ATTENDANCE LOGGED!", (w // 2 - 250, h // 2 - 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3, cv2.LINE_AA)
+                cv2.putText(frame, f"Name: {employee_name.upper()}", (w // 2 - 250, h // 2 + 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, f"Status: {pending_status}", (w // 2 - 250, h // 2 + 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, f"Loc: {final_location}", (w // 2 - 250, h // 2 + 90),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+                cv2.putText(frame, "Closing camera feed...", (w // 2 - 250, h // 2 + 130),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1, cv2.LINE_AA)
+                
+                cv2.imshow("Gesture Attendance System", frame)
+                cv2.waitKey(2500)
+                
+                print(f"[SUCCESS] Attendance {pending_status} logged for {employee_name} at {final_location}!")
+                print(f"[SUCCESS] Evidence snapshot saved to: {evidence_path}")
+                break  # Stop camera and exit program immediately
+                
+            # Reset hold state
+            active_gesture = None
+            consecutive_frames = 0
             
         # Draw HUD overlays on frame
-        draw_premium_hud(frame, "open_palm", hold_ratio, employee_name, location_hud)
+        draw_premium_hud(frame, active_gesture if active_gesture else "open_palm", hold_ratio, employee_name, last_log_message)
         
+        # Display current pending status if any
+        if pending_status is not None:
+            cv2.putText(frame, f"PENDING: {pending_status}", (20, 100),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+            # Display GPS status in main loop HUD
+            cv2.putText(frame, location_hud, (20, 130),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255) if gps_lat else (0, 165, 255), 2, cv2.LINE_AA)
+        else:
+            # Display GPS status
+            cv2.putText(frame, location_hud, (20, 100),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255) if gps_lat else (0, 165, 255), 2, cv2.LINE_AA)
+
+        # Show final frame
         cv2.imshow("Gesture Attendance System", frame)
         
         # Keyboard handling

@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 import numpy as np
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 # Add src to python path so we can import modules
@@ -52,14 +53,15 @@ class TestGestureAttendanceSystem(unittest.TestCase):
             self.fail(f"Module import failed: {e}")
 
     def test_attendance_logging_and_cooldown(self):
-        """Verify attendance logs correctly, cooldown duplicates works, and Excel syncs."""
+        """Verify attendance logs correctly, cooldown duplicates works, and Day column is logged."""
         from attendance import mark_attendance
         
         test_loc = "28.6139, 77.2090"
         test_evidence = "data/evidence/test_snap.jpg"
+        expected_day = datetime.now().strftime("%A")
         
         # First log - should succeed
-        success, msg = mark_attendance("John Doe", "PRESENT", test_loc, test_evidence)
+        success, msg = mark_attendance("John Doe", "IN", test_loc, test_evidence)
         self.assertTrue(success)
         self.assertIn("Successfully logged", msg)
         
@@ -68,7 +70,9 @@ class TestGestureAttendanceSystem(unittest.TestCase):
         with open(self.test_csv_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
             self.assertEqual(len(lines), 2)  # Header + 1 record
-            self.assertIn("John Doe,PRESENT", lines[1])
+            # Headers: Name, Status, Date, Day, Time, Location, Evidence_Path, Timestamp
+            self.assertIn("John Doe,IN", lines[1])
+            self.assertIn(expected_day, lines[1])
             self.assertIn(test_loc, lines[1])
             self.assertIn(test_evidence, lines[1])
 
@@ -76,7 +80,7 @@ class TestGestureAttendanceSystem(unittest.TestCase):
         self.assertTrue(os.path.exists(self.test_xlsx_path))
         
         # Second log (immediate duplicate) - should fail due to cooldown
-        success2, msg2 = mark_attendance("John Doe", "PRESENT", test_loc, test_evidence)
+        success2, msg2 = mark_attendance("John Doe", "IN", test_loc, test_evidence)
         self.assertFalse(success2)
         self.assertIn("Already logged", msg2)
         
@@ -86,10 +90,10 @@ class TestGestureAttendanceSystem(unittest.TestCase):
             self.assertEqual(len(lines), 2)
             
         # Different student or status should work
-        success3, msg3 = mark_attendance("Jane Smith", "PRESENT", test_loc, test_evidence)
+        success3, msg3 = mark_attendance("Jane Smith", "IN", test_loc, test_evidence)
         self.assertTrue(success3)
         
-        success4, msg4 = mark_attendance("John Doe", "ABSENT", test_loc, test_evidence)
+        success4, msg4 = mark_attendance("John Doe", "OUT", test_loc, test_evidence)
         self.assertTrue(success4)
 
     def test_gesture_detector_init(self):
