@@ -100,6 +100,7 @@ def main():
         face_verified = False
         face_name_detected = "UNKNOWN"
         face_bbox = None
+        face_confidence = None
         
         if face_detector is not None and face_recognizer is not None:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -128,8 +129,11 @@ def main():
                     resized_crop = cv2.resize(gray_crop, (200, 200), interpolation=cv2.INTER_AREA)
                     
                     label_id, confidence = face_recognizer.predict(resized_crop)
+                    face_confidence = confidence
+                    
                     # For LBPH, confidence represents distance (lower distance means better match)
-                    if confidence < 95.0:
+                    threshold = getattr(config, "FACE_CONFIDENCE_THRESHOLD", 70.0)
+                    if confidence < threshold:
                         face_name_detected = face_labels.get(label_id, "UNKNOWN")
                         
                         # Match login employee name against face name (case-insensitive substring check)
@@ -143,7 +147,12 @@ def main():
         if face_bbox is not None:
             face_color = (0, 255, 0) if face_verified else (0, 0, 255)
             draw_corner_rect(frame, face_bbox, color=face_color, thickness=2)
-            face_label_text = f"{face_name_detected.upper()} (VERIFIED)" if face_verified else "FACE UNVERIFIED / MISMATCH"
+            
+            conf_str = f" (Dist: {face_confidence:.1f})" if face_confidence is not None else ""
+            if face_verified:
+                face_label_text = f"{face_name_detected.upper()}{conf_str} (VERIFIED)"
+            else:
+                face_label_text = f"UNVERIFIED{conf_str}"
             cv2.putText(frame, face_label_text, (face_bbox[0], face_bbox[1] - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, face_color, 2, cv2.LINE_AA)
         
@@ -276,7 +285,16 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1, cv2.LINE_AA)
                 
                 cv2.imshow("Gesture Attendance System", frame)
-                cv2.waitKey(2500)
+                cv2.waitKey(100)
+                
+                # Play Odia TTS voice feedback
+                try:
+                    from tts import play_attendance_tts
+                    play_attendance_tts(employee_name, pending_status)
+                except Exception as e:
+                    print(f"[WARNING] TTS error: {e}")
+                    
+                cv2.waitKey(1000)
                 
                 print(f"[SUCCESS] Attendance {pending_status} logged for {employee_name} at {final_location}!")
                 print(f"[SUCCESS] Evidence snapshot saved to: {evidence_path}")
