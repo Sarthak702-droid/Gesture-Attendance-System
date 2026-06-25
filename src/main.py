@@ -6,6 +6,7 @@ from detect_gesture import GestureDetector
 from attendance import mark_attendance
 from utils import draw_premium_hud, draw_corner_rect, play_beep_sound, CameraStream
 from gps_server import start_gps_server, get_local_ip
+from security import SurveillanceSystem
 import gps_server
 import config
 
@@ -37,6 +38,9 @@ def main():
     
     # Initialize MediaPipe gesture detector
     detector = GestureDetector()
+    
+    # Initialize Security Surveillance System
+    surveillance = SurveillanceSystem()
     
     # Load Face Recognizer if trained
     face_model_path = os.path.join("models", "face_recognizer.xml")
@@ -95,6 +99,110 @@ def main():
             frame = cv2.flip(frame, 1)
             
         h, w, _ = frame.shape
+
+        # Check if Surveillance System night lock is active
+        if getattr(config, "SURVEILLANCE_ENABLED", False) and surveillance.is_lock_hours():
+            # 1. Run Person Detection
+            person_detected, person_bbox = surveillance.detect_person(frame)
+            
+            owner_verified = False
+            face_name_detected = "UNKNOWN"
+            face_bbox = None
+            face_confidence = None
+            
+            # 2. Run Face Recognition ONLY if a person is in the frame
+            if person_detected and face_detector is not None and face_recognizer is not None:
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                face_results = face_detector.process(rgb_frame)
+                
+                if face_results.detections:
+                    detection = face_results.detections[0]
+                    bbox_data = detection.location_data.relative_bounding_box
+                    fx = int(bbox_data.xmin * w)
+                    fy = int(bbox_data.ymin * h)
+                    fwidth = int(bbox_data.width * w)
+                    fheight = int(bbox_data.height * h)
+                    
+                    # Clamp and pad coordinates by 15% to match training database padding
+                    padding_w = int(fwidth * 0.15)
+                    padding_h = int(fheight * 0.15)
+                    
+                    fx1_pad = max(0, fx - padding_w)
+                    fy1_pad = max(0, fy - padding_h)
+                    fx2_pad = min(w, fx + fwidth + padding_w)
+                    fy2_pad = min(h, fy + fheight + padding_h)
+                    
+                    face_bbox = (fx1_pad, fy1_pad, fx2_pad, fy2_pad)
+                    
+                    face_crop = frame[fx1_pad:fy2_pad, fx1_pad:fx2_pad]
+                    if face_crop.size > 0:
+                        gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+                        equalized = cv2.equalizeHist(gray_crop)
+                        resized_crop = cv2.resize(equalized, (200, 200), interpolation=cv2.INTER_AREA)
+                        
+                        label_id, confidence = face_recognizer.predict(resized_crop)
+                        face_confidence = confidence
+                        
+                        threshold = getattr(config, "FACE_CONFIDENCE_THRESHOLD", 70.0)
+                        if confidence < threshold:
+                            face_name_detected = face_labels.get(label_id, "UNKNOWN")
+                            
+                            owner_name = getattr(config, "OWNER_NAME", "Sarthak Tripathy").strip().lower()
+                            if owner_name in face_name_detected.lower() or face_name_detected.lower() in owner_name:
+                                owner_verified = True
+            
+            # 3. Trigger Alert/Alarm based on results
+            if person_detected:
+                surveillance.trigger_alert(frame, person_bbox, owner_verified)
+                
+            # 4. Security Overlay / Display
+            overlay = frame.copy()
+            # Draw red banner at the top
+            cv2.rectangle(overlay, (0, 0), (w, 60), (0, 0, 150), -1)
+            cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+            
+            cv2.putText(frame, "SECURITY LOCKDOWN ACTIVE: SURVEILLANCE MODE", (20, 38),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(frame, "Q: QUIT SURVEILLANCE", (w - 240, 38),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1, cv2.LINE_AA)
+            
+            if person_detected:
+                if owner_verified:
+                    # Draw green box for verified owner
+                    if face_bbox is not None:
+                        draw_corner_rect(frame, face_bbox, color=(0, 255, 0), thickness=2)
+                        cv2.putText(frame, f"OWNER DETECTED ({face_name_detected.upper()})", 
+                                    (face_bbox[0], face_bbox[1] - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2, cv2.LINE_AA)
+                    cv2.putText(frame, "ACCESS GRANTED: OWNER DETECTED", (20, h - 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+                else:
+                    # Draw red box around intruder
+                    if person_bbox is not None:
+                        cv2.rectangle(frame, (person_bbox[0], person_bbox[1]), 
+                                      (person_bbox[2], person_bbox[3]), (0, 0, 255), 3)
+                    
+                    # Draw face box if detected but not verified
+                    if face_bbox is not None:
+                        draw_corner_rect(frame, face_bbox, color=(0, 0, 255), thickness=2)
+                        conf_str = f" (Dist: {face_confidence:.1f})" if face_confidence is not None else ""
+                        cv2.putText(frame, f"UNVERIFIED{conf_str}", (face_bbox[0], face_bbox[1] - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2, cv2.LINE_AA)
+                                    
+                    # Draw full screen blinking red alert border
+                    cv2.rectangle(frame, (0, 0), (w, h), (0, 0, 255), 10)
+                    cv2.putText(frame, "🚨 INTRUDER ALERT! SIREN ACTIVE 🚨", (20, h - 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
+            else:
+                cv2.putText(frame, "STATUS: SECURE (NO INTRUSION DETECTED)", (20, h - 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+            
+            cv2.imshow("Gesture Attendance System", frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q') or key == ord('Q'):
+                print("[INFO] Exiting surveillance mode...")
+                break
+            continue
         
         # 1. Run Face Detection & Recognition
         face_verified = False
@@ -114,19 +222,23 @@ def main():
                 fwidth = int(bbox_data.width * w)
                 fheight = int(bbox_data.height * h)
                 
-                # Clamp coordinates to frame boundary
-                fx1 = max(0, fx)
-                fy1 = max(0, fy)
-                fx2 = min(w, fx + fwidth)
-                fy2 = min(h, fy + fheight)
+                # Clamp and pad coordinates by 15% to match training database padding
+                padding_w = int(fwidth * 0.15)
+                padding_h = int(fheight * 0.15)
                 
-                face_bbox = (fx1, fy1, fx2, fy2)
+                fx1_pad = max(0, fx - padding_w)
+                fy1_pad = max(0, fy - padding_h)
+                fx2_pad = min(w, fx + fwidth + padding_w)
+                fy2_pad = min(h, fy + fheight + padding_h)
+                
+                face_bbox = (fx1_pad, fy1_pad, fx2_pad, fy2_pad)
                 
                 # Crop and predict
-                face_crop = frame[fy1:fy2, fx1:fx2]
+                face_crop = frame[fy1_pad:fy2_pad, fx1_pad:fx2_pad]
                 if face_crop.size > 0:
                     gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
-                    resized_crop = cv2.resize(gray_crop, (200, 200), interpolation=cv2.INTER_AREA)
+                    equalized = cv2.equalizeHist(gray_crop)
+                    resized_crop = cv2.resize(equalized, (200, 200), interpolation=cv2.INTER_AREA)
                     
                     label_id, confidence = face_recognizer.predict(resized_crop)
                     face_confidence = confidence

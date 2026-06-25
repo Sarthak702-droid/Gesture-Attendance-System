@@ -21,6 +21,9 @@ data/test_attendance.csv
 data/test_attendance.xlsx
 data/faces/
 data/evidence/
+data/alerts/
+data/raw_images/
+data/temp_tts.wav
 
 # Dataset images and labels (optional, to keep repo clean)
 dataset/images/train/*

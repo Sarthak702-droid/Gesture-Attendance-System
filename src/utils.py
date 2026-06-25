@@ -51,9 +51,19 @@ def draw_premium_hud(frame, active_gesture, hold_ratio, student_name, last_log_m
     cv2.putText(frame, "AI SMART ATTENDANCE SYSTEM", (20, 42),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
     
-    # Display current student name
-    name_display = f"STUDENT: {student_name.upper()}" if student_name else "STUDENT: NOT REGISTERED"
-    cv2.putText(frame, name_display, (w - 320, 42),
+    # Display current employee/owner name
+    import config
+    owner_name = getattr(config, "OWNER_NAME", "Sarthak Tripathy").strip().lower()
+    if student_name:
+        clean_name = student_name.strip().lower()
+        if clean_name == owner_name or owner_name in clean_name or clean_name in owner_name:
+            name_display = f"OWNER: {student_name.upper()}"
+        else:
+            name_display = f"EMPLOYEE: {student_name.upper()}"
+    else:
+        name_display = "EMPLOYEE: NOT REGISTERED"
+        
+    cv2.putText(frame, name_display, (w - 380, 42),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2, cv2.LINE_AA)
                 
     # 4. Add Footer text (status / log messages)

@@ -48,7 +48,11 @@ def main():
             if img is None:
                 continue
                 
-            faces_data.append(img)
+            # Apply histogram equalization and enforce 200x200 size consistency
+            equalized = cv2.equalizeHist(img)
+            resized = cv2.resize(equalized, (200, 200), interpolation=cv2.INTER_AREA)
+            
+            faces_data.append(resized)
             labels.append(idx)
             img_count += 1
             

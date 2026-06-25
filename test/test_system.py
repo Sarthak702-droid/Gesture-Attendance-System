@@ -111,6 +111,21 @@ class TestGestureAttendanceSystem(unittest.TestCase):
             self.assertIn("John Doe,URGENT_RETURN", lines[-1])
             self.assertTrue(any(term in lines[-1] for term in ["secs", "mins"]))
 
+    def test_surveillance_system(self):
+        """Verify SurveillanceSystem checks lock hours and runs person detection."""
+        from security import SurveillanceSystem
+        system = SurveillanceSystem()
+        
+        # Check lock hours method returns boolean
+        is_locked = system.is_lock_hours()
+        self.assertIsInstance(is_locked, bool)
+        
+        # Test frame processing on mock frame (should not detect person)
+        dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        person_detected, person_bbox = system.detect_person(dummy_frame)
+        self.assertFalse(person_detected)
+        self.assertIsNone(person_bbox)
+
     def test_gesture_detector_init(self):
         """Verify detector initializes with MediaPipe Hands."""
         from detect_gesture import GestureDetector

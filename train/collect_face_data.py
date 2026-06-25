@@ -11,9 +11,9 @@ def crop_and_resize_face(frame, bbox, target_size=(200, 200)):
     h, w, _ = frame.shape
     x, y, width, height = bbox
     
-    # Expand bounding box slightly for better facial feature capture
-    padding_w = int(width * 0.1)
-    padding_h = int(height * 0.1)
+    # Expand bounding box by 15% for better facial feature capture
+    padding_w = int(width * 0.15)
+    padding_h = int(height * 0.15)
     
     x1 = max(0, x - padding_w)
     y1 = max(0, y - padding_h)
@@ -25,7 +25,9 @@ def crop_and_resize_face(frame, bbox, target_size=(200, 200)):
         return None
         
     gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
-    resized_crop = cv2.resize(gray_crop, target_size, interpolation=cv2.INTER_AREA)
+    # Apply histogram equalization for robust lighting normalization
+    equalized = cv2.equalizeHist(gray_crop)
+    resized_crop = cv2.resize(equalized, target_size, interpolation=cv2.INTER_AREA)
     return resized_crop
 
 def process_static_images(detector, face_dir):
