@@ -28,6 +28,13 @@ class GPSServerHandler(BaseHTTPRequestHandler):
         # Suppress logging console spam
         return
 
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.end_headers()
+
     def do_GET(self):
         if self.path == "/":
             self.send_response(200)
@@ -157,6 +164,22 @@ class GPSServerHandler(BaseHTTPRequestHandler):
             </html>
             """
             self.wfile.write(html.encode("utf-8"))
+        elif self.path == "/data/attendance.csv":
+            import os
+            csv_path = os.path.join("data", "attendance.csv")
+            if os.path.exists(csv_path):
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "text/csv; charset=utf-8")
+                self.end_headers()
+                with open(csv_path, "rb") as f:
+                    self.wfile.write(f.read())
+            else:
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"")
         else:
             self.send_response(404)
             self.end_headers()

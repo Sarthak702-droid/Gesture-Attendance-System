@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pulse — attendance overview</title>
+  <!-- Load PapaParse for robust CSV parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    :root {
+      --bg: #fafaf9; --fg: #1c1b1a; --muted: #6b6964; --border: #e6e4e0;
+      --accent: #c96442; --surface: #ffffff; --good: #2f7d4a; --bad: #b53a2a;
+      --warn: #b45309;
+    }
+    * { box-sizing: border-box; }
+    body { 
+      margin: 0; 
+      background: var(--bg); 
+      color: var(--fg); 
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+      display: grid; 
+      grid-template-columns: 220px 1fr; 
+      min-height: 100vh; 
+    }
+    
+    /* Sidebar */
+    .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; }
+    .brand { font-weight: 600; padding: 8px 10px 18px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+    .nav { display: flex; flex-direction: column; gap: 2px; }
+    .nav button { 
+      background: transparent;
+      border: none;
+      text-align: left;
+      padding: 7px 10px; 
+      border-radius: 6px; 
+      color: var(--fg); 
+      font: inherit;
+      cursor: pointer;
+      width: 100%;
+    }
+    .nav button.active { background: var(--bg); font-weight: 500; }
+    .nav button:hover { background: var(--bg); }
+    .nav .group-label { font-size: 11px; color: var(--muted); padding: 14px 10px 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+    
+    /* Main Layout */
+    main { padding: 0 28px 56px; }
+    .topbar { padding: 16px 0; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+    .topbar h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; font-weight: 600; }
+    .topbar .right { display: flex; align-items: center; gap: 12px; color: var(--muted); }
+    
+    /* Interactive Elements */
+    .filters-bar {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+      align-items: center;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 18px;
+    }
+    .filter-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex-grow: 1;
+    }
+    .filter-item label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 500;
+    }
+    .filter-item input, .filter-item select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font: inherit;
+      color: var(--fg);
+      outline: none;
+    }
+    
+    /* API Status Pill */
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .status-dot.active {
+      background: var(--good);
+      box-shadow: 0 0 8px var(--good);
+    }
+    .status-dot.offline {
+      background: var(--bad);
+    }
+    
+    /* File uploader banner */
+    .upload-zone {
+      border: 2px dashed var(--border);
+      background: var(--surface);
+      border-radius: 10px;
+      padding: 30px;
+      text-align: center;
+      margin-bottom: 24px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .upload-zone:hover {
+      border-color: var(--accent);
+    }
+    .upload-zone p {
+      margin: 0;
+      color: var(--muted);
+    }
+    
+    /* KPIs */
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+    @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+    .kpi .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; font-weight: 500; }
+    .kpi .value { font-size: 28px; letter-spacing: -0.02em; font-weight: 600; line-height: 1.1; }
+    .kpi .delta { font-size: 12px; margin-top: 4px; font-weight: 500; }
+    .kpi .delta.up { color: var(--good); }
+    .kpi .delta.down { color: var(--bad); }
+    
+    /* Panels */
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+    .panel h3 { margin: 0 0 16px; font-size: 14px; font-weight: 500; color: var(--fg); }
+    .chart { height: 240px; background: linear-gradient(180deg, rgba(201,100,66,0.06), transparent); border-bottom: 1px solid var(--border); position: relative; overflow: hidden; border-radius: 6px; }
+    .chart svg { width: 100%; height: 100%; display: block; }
+    .panels-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
+    @media (max-width: 900px) { .panels-row { grid-template-columns: 1fr; } }
+    
+    /* Table Styling */
+    .table-container { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 6px; border-top: 1px solid var(--border); }
+    th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; border-top: none; }
+    td { font-size: 13px; }
+    
+    .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); font-weight: 500; }
+    .pill.good { color: var(--good); background-color: rgba(47,125,74,0.06); border-color: rgba(47,125,74,0.25); }
+    .pill.bad { color: var(--bad); background-color: rgba(181,58,42,0.06); border-color: rgba(181,58,42,0.25); }
+    .pill.warn { color: var(--warn); background-color: rgba(180,83,9,0.06); border-color: rgba(180,83,9,0.25); }
+    
+    button.btn-primary { 
+      font: inherit; 
+      cursor: pointer; 
+      padding: 7px 13px; 
+      border-radius: 6px; 
+      background: var(--accent); 
+      color: white; 
+      border: 1px solid var(--accent); 
+      font-weight: 500;
+      transition: background 0.1s ease-in-out;
+    }
+    button.btn-primary:hover {
+      background: #b05537;
+      border-color: #b05537;
+    }
+    
+    /* View Switcher */
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div>
+      <div class="brand">◐ Pulse Attendance</div>
+      <nav class="nav">
+        <button id="nav-overview" class="active" onclick="switchTab('overview')">Overview</button>
+        <button id="nav-payroll" onclick="switchTab('payroll')">Wages & Payroll</button>
+        <span class="group-label">Data Sync</span>
+        <div class="status-badge" style="margin-left: 10px; margin-right: 10px;">
+          <div id="status-dot" class="status-dot"></div>
+          <span id="status-text">Disconnected</span>
+        </div>
+      </nav>
+    </div>
+    <div style="padding: 10px; font-size: 11px; color: var(--muted);">
+      Pulse Attendance System &copy; 2026
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main>
+    <div class="topbar">
+      <h1 id="page-title">Overview · Loading...</h1>
+      <div class="right">
+        <input type="file" id="csv-file-input" accept=".csv" style="display: none;" onchange="handleFileUpload(event)" />
+        <button class="btn-primary" onclick="document.getElementById('csv-file-input').click()">Import CSV</button>
+      </div>
+    </div>
+
+    <!-- Drag & Drop Uploader (shown when no database) -->
+    <div id="drag-drop-zone" class="upload-zone" onclick="document.getElementById('csv-file-input').click()">
+      <p id="upload-instruction">👋 Live sync not active. Click here or Drag and Drop <strong>attendance.csv</strong> to render data local cache.</p>
+    </div>
+
+    <!-- Tab 1: Overview Dashboard -->
+    <div id="tab-overview" class="tab-content active">
+      <!-- Filters -->
+      <div class="filters-bar">
+        <div class="filter-item">
+          <label for="filter-name">Employee Name</label>
+          <input type="text" id="filter-name" placeholder="Search by name..." oninput="applyFilters()" />
+        </div>
+        <div class="filter-item">
+          <label for="filter-date-start">Start Date</label>
+          <input type="date" id="filter-date-start" onchange="applyFilters()" />
+        </div>
+        <div class="filter-item">
+          <label for="filter-date-end">End Date</label>
+          <input type="date" id="filter-date-end" onchange="applyFilters()" />
+        </div>
+      </div>
+
+      <!-- Overview KPIs -->
+      <div class="kpis">
+        <div class="kpi">
+          <div class="label">Total Logs</div>
+          <div class="value" id="kpi-total-logs">0</div>
+          <div class="delta up" id="kpi-total-logs-delta">no data</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Active Employees</div>
+          <div class="value" id="kpi-active-employees">0</div>
+          <div class="delta up" id="kpi-active-employees-delta">no data</div>
+        </div>
+        <div class="kpi">
+          <div class="label">IN / Inside</div>
+          <div class="value" id="kpi-inside-count">0</div>
+          <div class="delta up" id="kpi-inside-delta">no data</div>
+        </div>
+        <div class="kpi">
+          <div class="label">OUT / Away</div>
+          <div class="value" id="kpi-outside-count">0</div>
+          <div class="delta down" id="kpi-outside-delta">no data</div>
+        </div>
+      </div>
+
+      <!-- Trend and Status Row -->
+      <div class="panels-row">
+        <div class="panel">
+          <h3>Shift Attendance Activity</h3>
+          <div class="chart" id="attendance-chart">
+            <!-- Chart SVG will be injected here -->
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Last Seen Status</h3>
+          <div class="table-container">
+            <table id="last-seen-table">
+              <thead><tr><th>Employee</th><th>Last Time</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td colspan="3" style="text-align: center; color: var(--muted);">No records found</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Full Records Panel -->
+      <div class="panel">
+        <h3>Recent Events Log</h3>
+        <div class="table-container">
+          <table id="recent-events-table">
+            <thead><tr><th>Time</th><th>Employee</th><th>Event</th><th>Day</th><th>Date</th></tr></thead>
+            <tbody>
+              <tr><td colspan="5" style="text-align: center; color: var(--muted);">No records found</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Wages & Payroll Dashboard -->
+    <div id="tab-payroll" class="tab-content">
+      <!-- Config Controls -->
+      <div class="filters-bar">
+        <div class="filter-item">
+          <label for="pay-rate">Hourly Rate (Rs.)</label>
+          <input type="number" id="pay-rate" value="500" step="50" onchange="calculatePayroll()" />
+        </div>
+        <div class="filter-item">
+          <label for="penalty-rate">Late Penalty (Rs.)</label>
+          <input type="number" id="penalty-rate" value="100" step="10" onchange="calculatePayroll()" />
+        </div>
+        <div class="filter-item">
+          <label for="office-start">Office Expected Start Time</label>
+          <input type="text" id="office-start" value="09:00" placeholder="e.g. 09:00" onchange="calculatePayroll()" />
+        </div>
+      </div>
+
+      <!-- Payroll KPIs -->
+      <div class="kpis">
+        <div class="kpi">
+          <div class="label">Total Wages Paid</div>
+          <div class="value" id="kpi-payroll-wages">Rs. 0.00</div>
+          <div class="delta up" id="kpi-payroll-wages-delta">estimated</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Total Net Hours</div>
+          <div class="value" id="kpi-payroll-hours">0.00 hrs</div>
+          <div class="delta up">worked duration</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Total Penalties</div>
+          <div class="value" id="kpi-payroll-penalties">Rs. 0.00</div>
+          <div class="delta down">arrival deductions</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Late Arrivals</div>
+          <div class="value" id="kpi-payroll-lates">0</div>
+          <div class="delta down">lateness counts</div>
+        </div>
+      </div>
+
+      <!-- Payroll Table Panel -->
+      <div class="panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="margin: 0;">Daily Wages Breakdown</h3>
+          <button class="btn-primary" onclick="downloadPayrollCSV()">Export Payroll CSV</button>
+        </div>
+        <div class="table-container">
+          <table id="payroll-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Date</th>
+                <th>IN</th>
+                <th>OUT</th>
+                <th>Breaks</th>
+                <th>Net Hrs</th>
+                <th>Late</th>
+                <th>Penalty</th>
+                <th>Wage</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="10" style="text-align: center; color: var(--muted);">No records found</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let rawCSVData = [];
+    let parsedRecords = [];
+    let filteredRecords = [];
+    let payrollCalculated = [];
+
+    // Check system status
+    window.onload = function() {
+      // Set calendar topbar date
+      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const d = new Date();
+      document.getElementById("page-title").innerText = `Overview · ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+      
+      // Load cache
+      const cached = localStorage.getItem("attendance_csv");
+      if (cached) {
+        parseCSVString(cached);
+      }
+      
+      // Initial API check
+      pollLocalAPI();
+      
+      // Poll local API server every 5 seconds for live sync
+      setInterval(pollLocalAPI, 5000);
+    }
+
+    // Toggle tab display
+    function switchTab(tabId) {
+      document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
+      document.querySelectorAll(".nav button").forEach(el => el.classList.remove("active"));
+      
+      document.getElementById("tab-" + tabId).classList.add("active");
+      document.getElementById("nav-" + tabId).classList.add("active");
+    }
+
+    // Poll live local API
+    function pollLocalAPI() {
+      fetch("http://localhost:5000/data/attendance.csv")
+        .then(response => {
+          if (response.ok) {
+            return response.text();
+          }
+          throw new Error("Local API inactive");
+        })
+        .then(csvText => {
+          if (csvText && csvText.trim().length > 0) {
+            // Live sync active
+            document.getElementById("status-dot").className = "status-dot active";
+            document.getElementById("status-text").innerText = "Live Sync Active";
+            document.getElementById("drag-drop-zone").style.display = "none";
+            
+            // Parse & save
+            localStorage.setItem("attendance_csv", csvText);
+            parseCSVString(csvText);
+          }
+        })
+        .catch(err => {
+          // Offline fallback
+          document.getElementById("status-dot").className = "status-dot offline";
+          document.getElementById("status-text").innerText = "Local API Offline";
+          
+          const cached = localStorage.getItem("attendance_csv");
+          if (!cached) {
+            document.getElementById("drag-drop-zone").style.display = "block";
+          } else {
+            document.getElementById("drag-drop-zone").style.display = "none";
+          }
+        });
+    }
+
+    // Handle drag and drop upload
+    function handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const text = e.target.result;
+        localStorage.setItem("attendance_csv", text);
+        parseCSVString(text);
+        document.getElementById("drag-drop-zone").style.display = "none";
+      };
+      reader.readAsText(file);
+    }
+
+    // Parse CSV String into JSON array
+    function parseCSVString(csvText) {
+      Papa.parse(csvText, {
+        header: true,
+        dynamicTyping: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          rawCSVData = results.data;
+          
+          // Preprocess records
+          parsedRecords = rawCSVData.map(row => {
+            return {
+              Name: row.Name || 'Unknown',
+              Status: row.Status || 'IN',
+              Date: row.Date || '',
+              Day: row.Day || '',
+              Time: row.Time || '',
+              Location: row.Location || '',
+              Timestamp: parseInt(row.Timestamp) || 0,
+              Duration: row.Duration || ''
+            };
+          });
+
+          // Set date inputs range if present
+          if (parsedRecords.length > 0) {
+            const dates = parsedRecords.map(r => r.Date).filter(d => d).sort();
+            if (dates.length > 0) {
+              const minD = dates[0];
+              const maxD = dates[dates.length - 1];
+              
+              if (!document.getElementById("filter-date-start").value) {
+                document.getElementById("filter-date-start").value = minD;
+              }
+              if (!document.getElementById("filter-date-end").value) {
+                document.getElementById("filter-date-end").value = maxD;
+              }
+            }
+          }
+          
+          applyFilters();
+        }
+      });
+    }
+
+    // Apply Filter settings
+    function applyFilters() {
+      const searchName = document.getElementById("filter-name").value.toLowerCase();
+      const startDate = document.getElementById("filter-date-start").value;
+      const endDate = document.getElementById("filter-date-end").value;
+      
+      filteredRecords = parsedRecords.filter(r => {
+        const matchesName = r.Name.toLowerCase().includes(searchName);
+        const matchesStart = startDate ? r.Date >= startDate : true;
+        const matchesEnd = endDate ? r.Date <= endDate : true;
+        return matchesName && matchesStart && matchesEnd;
+      });
+
+      renderKPIs();
+      renderSVGChart();
+      renderLastSeenTable();
+      renderRecentEventsTable();
+      calculatePayroll();
+    }
+
+    // Render Tab 1 KPIs
+    function renderKPIs() {
+      const total = filteredRecords.length;
+      document.getElementById("kpi-total-logs").innerText = total;
+      document.getElementById("kpi-total-logs-delta").innerText = `+${total} logs`;
+
+      const names = [...new Set(filteredRecords.map(r => r.Name))];
+      document.getElementById("kpi-active-employees").innerText = names.length;
+      document.getElementById("kpi-active-employees-delta").innerText = `active this period`;
+
+      const ins = filteredRecords.filter(r => ['IN', 'PRESENT', 'URGENT_RETURN'].includes(r.Status)).length;
+      document.getElementById("kpi-inside-count").innerText = ins;
+      document.getElementById("kpi-inside-delta").innerText = `active inside`;
+
+      const outs = filteredRecords.filter(r => ['OUT', 'URGENT_EXIT'].includes(r.Status)).length;
+      document.getElementById("kpi-outside-count").innerText = outs;
+      document.getElementById("kpi-outside-delta").innerText = `away/exited`;
+    }
+
+    // Draw Dynamic SVG Bar Chart matching Pulse Terracotta style
+    function renderSVGChart() {
+      const container = document.getElementById("attendance-chart");
+      
+      // Group logs by date
+      const dateGroups = {};
+      filteredRecords.forEach(r => {
+        if (!r.Date) return;
+        const dt = r.Date;
+        if (!dateGroups[dt]) {
+          dateGroups[dt] = { ins: 0, outs: 0 };
+        }
+        if (['IN', 'PRESENT', 'URGENT_RETURN'].includes(r.Status)) {
+          dateGroups[dt].ins++;
+        } else if (['OUT', 'URGENT_EXIT'].includes(r.Status)) {
+          dateGroups[dt].outs++;
+        }
+      });
+
+      const dates = Object.keys(dateGroups).sort();
+      
+      if (dates.length === 0) {
+        container.innerHTML = '<div style="color: var(--muted); text-align: center; padding: 40px 0;">No trend data available</div>';
+        return;
+      }
+
+      // Find max values
+      let maxVal = 1;
+      dates.forEach(d => {
+        const val = Math.max(dateGroups[d].ins, dateGroups[d].outs);
+        if (val > maxVal) maxVal = val;
+      });
+
+      const width = 600;
+      const height = 240;
+      const padLeft = 40;
+      const padRight = 20;
+      const padTop = 20;
+      const padBottom = 30;
+
+      const chartW = width - padLeft - padRight;
+      const chartH = height - padTop - padBottom;
+      const colW = chartW / dates.length;
+
+      let svg = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" style="font-family: inherit;">`;
+
+      // Y Gridlines
+      for (let i = 0; i < 4; i++) {
+        const gridVal = Math.round((maxVal * i) / 3);
+        const y = padTop + chartH - (gridVal / maxVal) * chartH;
+        svg += `<line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="var(--border)" stroke-dasharray="2 2" stroke-width="1" />`;
+        svg += `<text x="${padLeft - 10}" y="${y + 4}" font-size="10" fill="var(--muted)" text-anchor="end">${gridVal}</text>`;
+      }
+
+      // Columns
+      dates.forEach((dt, idx) => {
+        const xCenter = padLeft + idx * colW + colW / 2;
+        const dObj = dateGroups[dt];
+        
+        const inH = (dObj.ins / maxVal) * chartH;
+        const outH = (dObj.outs / maxVal) * chartH;
+
+        // Render check-ins bar (Terracotta / Accent)
+        const barW = Math.max(4.0, colW * 0.3);
+        const xIn = xCenter - barW - 2;
+        const yIn = padTop + chartH - inH;
+        if (inH > 0) {
+          svg += `<rect x="${xIn}" y="${yIn}" width="${barW}" height="${inH}" fill="var(--accent)" rx="2" />`;
+        }
+
+        // Render check-outs bar (Muted)
+        const xOut = xCenter + 2;
+        const yOut = padTop + chartH - outH;
+        if (outH > 0) {
+          svg += `<rect x="${xOut}" y="${yOut}" width="${barW}" height="${outH}" fill="var(--muted)" rx="2" opacity="0.6" />`;
+        }
+
+        // X labels (Short date)
+        const shortDt = dt.substring(5); // Format: MM-DD
+        if (dates.length < 10 || idx % Math.ceil(dates.length / 5) === 0) {
+          svg += `<text x="${xCenter}" y="${height - 8}" font-size="10" fill="var(--muted)" text-anchor="middle">${shortDt}</text>`;
+        }
+      });
+
+      svg += `</svg>`;
+      container.innerHTML = svg;
+    }
+
+    // Render Last Seen Table
+    function renderLastSeenTable() {
+      const tbody = document.querySelector("#last-seen-table tbody");
+      
+      // Get last seen log for each employee
+      const employeeLastLog = {};
+      filteredRecords.forEach(r => {
+        const name = r.Name;
+        if (!employeeLastLog[name] || r.Timestamp > employeeLastLog[name].Timestamp) {
+          employeeLastLog[name] = r;
+        }
+      });
+
+      const list = Object.values(employeeLastLog).sort((a, b) => b.Timestamp - a.Timestamp).slice(0, 4);
+
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--muted);">No records found</td></tr>`;
+        return;
+      }
+
+      let html = '';
+      list.forEach(r => {
+        const pillClass = ['IN', 'PRESENT', 'URGENT_RETURN'].includes(r.Status) ? 'pill good' : 'pill bad';
+        html += `
+          <tr>
+            <td><strong>${r.Name}</strong></td>
+            <td>${r.Time}</td>
+            <td><span class="${pillClass}">${r.Status}</span></td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+    }
+
+    // Render Recent Events Table
+    function renderRecentEventsTable() {
+      const tbody = document.querySelector("#recent-events-table tbody");
+      
+      const list = [...filteredRecords].sort((a, b) => b.Timestamp - a.Timestamp).slice(0, 20);
+
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--muted);">No records found</td></tr>`;
+        return;
+      }
+
+      let html = '';
+      list.forEach(r => {
+        const pillClass = ['IN', 'PRESENT', 'URGENT_RETURN'].includes(r.Status) ? 'pill good' : 'pill bad';
+        html += `
+          <tr>
+            <td>${r.Time}</td>
+            <td><strong>${r.Name}</strong></td>
+            <td><span class="${pillClass}">${r.Status}</span></td>
+            <td>${r.Day}</td>
+            <td>${r.Date}</td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+    }
+
+    // Duration parser parser helper
+    function parseDurationToHours(str) {
+      if (!str || str === 'N/A') return 0;
+      const parts = str.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        const val = parseFloat(parts[0]);
+        const unit = parts[1].toLowerCase();
+        if (unit.includes('sec')) return val / 3600.0;
+        if (unit.includes('min')) return val / 60.0;
+        if (unit.includes('hour')) return val;
+      }
+      return 0;
+    }
+
+    // Time parser helper: converts HH:MM:SS string to minutes from midnight
+    function timeToMin(tStr) {
+      if (!tStr) return 0;
+      const parts = tStr.split(':').map(x => parseInt(x));
+      return parts[0] * 60 + (parts[1] || 0);
+    }
+
+    // Calculate wages and late arrival penalties
+    function calculatePayroll() {
+      const hourlyRate = parseFloat(document.getElementById("pay-rate").value) || 500.0;
+      const penaltyRate = parseFloat(document.getElementById("penalty-rate").value) || 100.0;
+      const officeStartStr = document.getElementById("office-start").value || "09:00";
+      const startLimitMin = timeToMin(officeStartStr);
+
+      // Group records by name and date
+      const groupData = {};
+      filteredRecords.forEach(r => {
+        if (!r.Name || !r.Date) return;
+        const key = `${r.Name}|${r.Date}`;
+        if (!groupData[key]) {
+          groupData[key] = [];
+        }
+        groupData[key].push(r);
+      });
+
+      payrollCalculated = [];
+
+      Object.keys(groupData).forEach(key => {
+        const [name, date] = key.split('|');
+        const logs = groupData[key].sort((a, b) => a.Timestamp - b.Timestamp);
+
+        // Find earliest IN / PRESENT
+        let earliestIn = null;
+        let latestOut = null;
+
+        logs.forEach(l => {
+          if (['IN', 'PRESENT'].includes(l.Status)) {
+            if (!earliestIn || l.Timestamp < earliestIn.Timestamp) {
+              earliestIn = l;
+            }
+          }
+          if (l.Status === 'OUT') {
+            if (!latestOut || l.Timestamp > latestOut.Timestamp) {
+              latestOut = l;
+            }
+          }
+        });
+
+        // Sum breaks
+        let breakHours = 0;
+        logs.forEach(l => {
+          if (l.Status === 'URGENT_RETURN') {
+            breakHours += parseDurationToHours(l.Duration);
+          }
+        });
+
+        let lateArrival = false;
+        let lateMin = 0;
+        let rawHours = 0;
+        let netHours = 0;
+        let penalty = 0;
+        let wage = 0;
+        let status = "Incomplete Shift";
+
+        if (earliestIn) {
+          const checkInMin = timeToMin(earliestIn.Time);
+          if (checkInMin > startLimitMin) {
+            lateArrival = true;
+            lateMin = checkInMin - startLimitMin;
+            penalty += penaltyRate;
+          }
+
+          if (latestOut) {
+            rawHours = (latestOut.Timestamp - earliestIn.Timestamp) / 3600.0;
+            netHours = Math.max(0, rawHours - breakHours);
+            wage = Math.max(0, netHours * hourlyRate - penalty);
+            status = "Completed";
+          } else {
+            status = "Checked In / Active";
+          }
+        } else if (latestOut) {
+          status = "Missing Check-In";
+        }
+
+        payrollCalculated.push({
+          Name: name,
+          Date: date,
+          CheckIn: earliestIn ? earliestIn.Time : 'N/A',
+          CheckOut: latestOut ? latestOut.Time : 'N/A',
+          BreakHours: breakHours,
+          NetHours: netHours,
+          Late: lateArrival ? 'Yes' : 'No',
+          LateMins: lateMin,
+          Penalty: penalty,
+          Wage: wage,
+          Status: status
+        });
+      });
+
+      // Render Payroll metrics & table
+      renderPayrollDashboard();
+    }
+
+    // Render tab 2 views
+    function renderPayrollDashboard() {
+      const tbody = document.querySelector("#payroll-table tbody");
+      
+      if (payrollCalculated.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--muted);">No records found</td></tr>`;
+        
+        // Zero metrics
+        document.getElementById("kpi-payroll-wages").innerText = "Rs. 0.00";
+        document.getElementById("kpi-payroll-hours").innerText = "0.00 hrs";
+        document.getElementById("kpi-payroll-penalties").innerText = "Rs. 0.00";
+        document.getElementById("kpi-payroll-lates").innerText = "0";
+        return;
+      }
+
+      // Sum totals
+      let totalWages = 0;
+      let totalHours = 0;
+      let totalPenalties = 0;
+      let latesCount = 0;
+
+      payrollCalculated.forEach(p => {
+        if (p.Status === 'Completed') {
+          totalWages += p.Wage;
+          totalHours += p.NetHours;
+        }
+        totalPenalties += p.Penalty;
+        if (p.Late === 'Yes') latesCount++;
+      });
+
+      document.getElementById("kpi-payroll-wages").innerText = `Rs. ${totalWages.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      document.getElementById("kpi-payroll-hours").innerText = `${totalHours.toFixed(2)} hrs`;
+      document.getElementById("kpi-payroll-penalties").innerText = `Rs. ${totalPenalties.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      document.getElementById("kpi-payroll-lates").innerText = latesCount;
+
+      let html = '';
+      payrollCalculated.sort((a,b) => b.Date.localeCompare(a.Date)).forEach(p => {
+        let pillClass = 'pill';
+        if (p.Status === 'Completed') pillClass += ' good';
+        else if (p.Status === 'Checked In / Active') pillClass += ' warn';
+        else pillClass += ' bad';
+
+        const latePill = p.Late === 'Yes' ? '<span class="pill bad">Yes</span>' : '<span class="pill good">No</span>';
+
+        html += `
+          <tr>
+            <td><strong>${p.Name}</strong></td>
+            <td>${p.Date}</td>
+            <td>${p.CheckIn}</td>
+            <td>${p.CheckOut}</td>
+            <td>${p.BreakHours.toFixed(2)} hrs</td>
+            <td><strong>${p.NetHours.toFixed(2)} hrs</strong></td>
+            <td>${latePill}</td>
+            <td>Rs. ${p.Penalty}</td>
+            <td><strong>Rs. ${p.Wage.toFixed(2)}</strong></td>
+            <td><span class="${pillClass}">${p.Status}</span></td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+    }
+
+    // Export Payroll Table to CSV file
+    function downloadPayrollCSV() {
+      if (payrollCalculated.length === 0) return;
+      
+      const csvRows = [
+        ["Employee", "Date", "IN", "OUT", "Breaks (hrs)", "Net Hrs", "Late", "Late Mins", "Penalty (Rs)", "Wage (Rs)", "Status"]
+      ];
+
+      payrollCalculated.forEach(p => {
+        csvRows.push([
+          p.Name,
+          p.Date,
+          p.CheckIn,
+          p.CheckOut,
+          p.BreakHours.toFixed(2),
+          p.NetHours.toFixed(2),
+          p.Late,
+          p.LateMins,
+          p.Penalty,
+          p.Wage.toFixed(2),
+          p.Status
+        ]);
+      });
+
+      const csvContent = "data:text/csv;charset=utf-8," 
+        + csvRows.map(e => e.map(val => `"${val}"`).join(",")).join("\n");
+        
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `Payroll_Report_${new Date().toISOString().substring(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  </script>
+</body>
+</html>
