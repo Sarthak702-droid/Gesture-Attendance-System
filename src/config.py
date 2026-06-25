@@ -28,4 +28,15 @@ TELEGRAM_ALERTS_ENABLED = False
 TELEGRAM_BOT_TOKEN = ""
 TELEGRAM_CHAT_ID = ""
 
+# Liveness (Anti-Spoofing) Detection Threshold
+# Laplacian variance of face crop. Blurry print photos have low variance (< 60),
+# screens have very high variance due to screen glare/pixel-grids.
+LIVENESS_THRESHOLD = 60.0
+
+# HR Payroll & Cost Center Settings
+OFFICE_START_TIME = "09:00"  # Expected check-in time (24-hour format)
+OFFICE_END_TIME = "17:00"    # Expected check-out time (24-hour format)
+HOURLY_RATE = 500.0          # Employee hourly pay rate
+LATE_PENALTY_RATE = 100.0    # Deducted amount per late arrival
+
 

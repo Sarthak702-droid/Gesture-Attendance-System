@@ -4,7 +4,7 @@ import time
 import pickle
 from detect_gesture import GestureDetector
 from attendance import mark_attendance
-from utils import draw_premium_hud, draw_corner_rect, play_beep_sound, CameraStream
+from utils import draw_premium_hud, draw_corner_rect, play_beep_sound, CameraStream, check_liveness
 from gps_server import start_gps_server, get_local_ip
 from security import SurveillanceSystem
 import gps_server
@@ -116,6 +116,9 @@ def main():
             face_name_detected = "UNKNOWN"
             face_bbox = None
             face_confidence = None
+            multi_face_active_surv = False
+            liveness_ok_surv = True
+            liveness_score_surv = 0.0
             
             # 2. Run Face Recognition ONLY if a person is in the frame
             if person_detected and face_detector is not None and face_recognizer is not None:
@@ -123,40 +126,49 @@ def main():
                 face_results = face_detector.process(rgb_frame)
                 
                 if face_results.detections:
-                    detection = face_results.detections[0]
-                    bbox_data = detection.location_data.relative_bounding_box
-                    fx = int(bbox_data.xmin * w)
-                    fy = int(bbox_data.ymin * h)
-                    fwidth = int(bbox_data.width * w)
-                    fheight = int(bbox_data.height * h)
-                    
-                    # Clamp and pad coordinates by 15% to match training database padding
-                    padding_w = int(fwidth * 0.15)
-                    padding_h = int(fheight * 0.15)
-                    
-                    fx1_pad = max(0, fx - padding_w)
-                    fy1_pad = max(0, fy - padding_h)
-                    fx2_pad = min(w, fx + fwidth + padding_w)
-                    fy2_pad = min(h, fy + fheight + padding_h)
-                    
-                    face_bbox = (fx1_pad, fy1_pad, fx2_pad, fy2_pad)
-                    
-                    face_crop = frame[fx1_pad:fy2_pad, fx1_pad:fx2_pad]
-                    if face_crop.size > 0:
-                        gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
-                        equalized = cv2.equalizeHist(gray_crop)
-                        resized_crop = cv2.resize(equalized, (200, 200), interpolation=cv2.INTER_AREA)
+                    num_faces = len(face_results.detections)
+                    if num_faces > 1:
+                        multi_face_active_surv = True
+                        owner_verified = False  # Block verification for security
+                    else:
+                        detection = face_results.detections[0]
+                        bbox_data = detection.location_data.relative_bounding_box
+                        fx = int(bbox_data.xmin * w)
+                        fy = int(bbox_data.ymin * h)
+                        fwidth = int(bbox_data.width * w)
+                        fheight = int(bbox_data.height * h)
                         
-                        label_id, confidence = face_recognizer.predict(resized_crop)
-                        face_confidence = confidence
+                        # Clamp and pad coordinates by 15% to match training database padding
+                        padding_w = int(fwidth * 0.15)
+                        padding_h = int(fheight * 0.15)
                         
-                        threshold = getattr(config, "FACE_CONFIDENCE_THRESHOLD", 70.0)
-                        if confidence < threshold:
-                            face_name_detected = face_labels.get(label_id, "UNKNOWN")
-                            
-                            owner_name = getattr(config, "OWNER_NAME", "Sarthak Tripathy").strip().lower()
-                            if owner_name in face_name_detected.lower() or face_name_detected.lower() in owner_name:
-                                owner_verified = True
+                        fx1_pad = max(0, fx - padding_w)
+                        fy1_pad = max(0, fy - padding_h)
+                        fx2_pad = min(w, fx + fwidth + padding_w)
+                        fy2_pad = min(h, fy + fheight + padding_h)
+                        
+                        face_bbox = (fx1_pad, fy1_pad, fx2_pad, fy2_pad)
+                        
+                        face_crop = frame[fy1_pad:fy2_pad, fx1_pad:fx2_pad]
+                        if face_crop.size > 0:
+                            liveness_ok_surv, liveness_score_surv = check_liveness(face_crop)
+                            if not liveness_ok_surv:
+                                owner_verified = False  # Spoof detected
+                            else:
+                                gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+                                equalized = cv2.equalizeHist(gray_crop)
+                                resized_crop = cv2.resize(equalized, (200, 200), interpolation=cv2.INTER_AREA)
+                                
+                                label_id, confidence = face_recognizer.predict(resized_crop)
+                                face_confidence = confidence
+                                
+                                threshold = getattr(config, "FACE_CONFIDENCE_THRESHOLD", 70.0)
+                                if confidence < threshold:
+                                    face_name_detected = face_labels.get(label_id, "UNKNOWN")
+                                    
+                                    owner_name = getattr(config, "OWNER_NAME", "Sarthak Tripathy").strip().lower()
+                                    if owner_name in face_name_detected.lower() or face_name_detected.lower() in owner_name:
+                                        owner_verified = True
             
             # 3. Trigger Alert/Alarm based on results
             if person_detected:
@@ -216,64 +228,91 @@ def main():
         face_name_detected = "UNKNOWN"
         face_bbox = None
         face_confidence = None
+        multi_face_active = False
+        liveness_ok = True
+        liveness_score = 0.0
         
         if face_detector is not None and face_recognizer is not None:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             face_results = face_detector.process(rgb_frame)
             
             if face_results.detections:
-                detection = face_results.detections[0]
-                bbox_data = detection.location_data.relative_bounding_box
-                fx = int(bbox_data.xmin * w)
-                fy = int(bbox_data.ymin * h)
-                fwidth = int(bbox_data.width * w)
-                fheight = int(bbox_data.height * h)
-                
-                # Clamp and pad coordinates by 15% to match training database padding
-                padding_w = int(fwidth * 0.15)
-                padding_h = int(fheight * 0.15)
-                
-                fx1_pad = max(0, fx - padding_w)
-                fy1_pad = max(0, fy - padding_h)
-                fx2_pad = min(w, fx + fwidth + padding_w)
-                fy2_pad = min(h, fy + fheight + padding_h)
-                
-                face_bbox = (fx1_pad, fy1_pad, fx2_pad, fy2_pad)
-                
-                # Crop and predict
-                face_crop = frame[fy1_pad:fy2_pad, fx1_pad:fx2_pad]
-                if face_crop.size > 0:
-                    gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
-                    equalized = cv2.equalizeHist(gray_crop)
-                    resized_crop = cv2.resize(equalized, (200, 200), interpolation=cv2.INTER_AREA)
+                num_faces = len(face_results.detections)
+                if num_faces > 1:
+                    multi_face_active = True
+                else:
+                    detection = face_results.detections[0]
+                    bbox_data = detection.location_data.relative_bounding_box
+                    fx = int(bbox_data.xmin * w)
+                    fy = int(bbox_data.ymin * h)
+                    fwidth = int(bbox_data.width * w)
+                    fheight = int(bbox_data.height * h)
                     
-                    label_id, confidence = face_recognizer.predict(resized_crop)
-                    face_confidence = confidence
+                    # Clamp and pad coordinates by 15% to match training database padding
+                    padding_w = int(fwidth * 0.15)
+                    padding_h = int(fheight * 0.15)
                     
-                    # For LBPH, confidence represents distance (lower distance means better match)
-                    threshold = getattr(config, "FACE_CONFIDENCE_THRESHOLD", 70.0)
-                    if confidence < threshold:
-                        face_name_detected = face_labels.get(label_id, "UNKNOWN")
+                    fx1_pad = max(0, fx - padding_w)
+                    fy1_pad = max(0, fy - padding_h)
+                    fx2_pad = min(w, fx + fwidth + padding_w)
+                    fy2_pad = min(h, fy + fheight + padding_h)
+                    
+                    face_bbox = (fx1_pad, fy1_pad, fx2_pad, fy2_pad)
+                    
+                    # Crop and predict
+                    face_crop = frame[fy1_pad:fy2_pad, fx1_pad:fx2_pad]
+                    if face_crop.size > 0:
+                        liveness_ok, liveness_score = check_liveness(face_crop)
                         
-                        # Match login employee name against face name (case-insensitive substring check)
-                        login_name_clean = employee_name.strip().lower()
-                        detected_name_clean = face_name_detected.lower()
+                        gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+                        equalized = cv2.equalizeHist(gray_crop)
+                        resized_crop = cv2.resize(equalized, (200, 200), interpolation=cv2.INTER_AREA)
                         
-                        if login_name_clean in detected_name_clean or detected_name_clean in login_name_clean:
-                            face_verified = True
+                        label_id, confidence = face_recognizer.predict(resized_crop)
+                        face_confidence = confidence
+                        
+                        # For LBPH, confidence represents distance (lower distance means better match)
+                        threshold = getattr(config, "FACE_CONFIDENCE_THRESHOLD", 70.0)
+                        if confidence < threshold:
+                            face_name_detected = face_labels.get(label_id, "UNKNOWN")
+                            
+                            # Match login employee name against face name (case-insensitive substring check)
+                            login_name_clean = employee_name.strip().lower()
+                            detected_name_clean = face_name_detected.lower()
+                            
+                            if login_name_clean in detected_name_clean or detected_name_clean in login_name_clean:
+                                face_verified = True
                             
         # Draw Face Overlay
         if face_bbox is not None:
-            face_color = (0, 255, 0) if face_verified else (0, 0, 255)
-            draw_corner_rect(frame, face_bbox, color=face_color, thickness=2)
-            
-            conf_str = f" (Dist: {face_confidence:.1f})" if face_confidence is not None else ""
-            if face_verified:
-                face_label_text = f"{face_name_detected.upper()}{conf_str} (VERIFIED)"
+            if not liveness_ok:
+                face_color = (0, 0, 255)  # Red for spoof
+                draw_corner_rect(frame, face_bbox, color=face_color, thickness=2)
+                face_label_text = f"SPOOF DETECTED! (Conf: {liveness_score:.1f})"
+                cv2.putText(frame, face_label_text, (face_bbox[0], face_bbox[1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, face_color, 2, cv2.LINE_AA)
             else:
-                face_label_text = f"UNVERIFIED{conf_str}"
-            cv2.putText(frame, face_label_text, (face_bbox[0], face_bbox[1] - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, face_color, 2, cv2.LINE_AA)
+                face_color = (0, 255, 0) if face_verified else (0, 0, 255)
+                draw_corner_rect(frame, face_bbox, color=face_color, thickness=2)
+                
+                conf_str = f" (Dist: {face_confidence:.1f})" if face_confidence is not None else ""
+                liveness_str = f" | Live Score: {liveness_score:.1f}"
+                if face_verified:
+                    face_label_text = f"{face_name_detected.upper()}{conf_str}{liveness_str} (VERIFIED)"
+                else:
+                    face_label_text = f"UNVERIFIED{conf_str}{liveness_str}"
+                cv2.putText(frame, face_label_text, (face_bbox[0], face_bbox[1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, face_color, 2, cv2.LINE_AA)
+                            
+        # Render Blinking Warning for Multi-Face Detection
+        if multi_face_active:
+            if int(time.time() * 2) % 2 == 0:
+                overlay = frame.copy()
+                cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, 255), 10)
+                cv2.rectangle(overlay, (w // 2 - 300, h // 2 - 40), (w // 2 + 300, h // 2 + 40), (0, 0, 150), -1)
+                cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+                cv2.putText(frame, "🚨 MULTI-FACE DETECTED 🚨", (w // 2 - 250, h // 2 + 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 3, cv2.LINE_AA)
         
         # 2. Run MediaPipe Hands detector
         detections = detector.detect(frame, conf_threshold=0.60)
@@ -305,11 +344,11 @@ def main():
             cv2.putText(frame, label_text, (hand_bbox[0], hand_bbox[1] - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2, cv2.LINE_AA)
             
-        # 3. Check action validity based on current state and face verification
+        # 3. Check action validity based on current state, face verification, liveness, and multi-face
         face_required_gestures = ["thumbs_up", "peace", "open_palm", "pointing_up", "three_fingers"]
         face_ok = True
         if face_recognizer is not None and detected_gesture in face_required_gestures:
-            face_ok = face_verified
+            face_ok = face_verified and liveness_ok and not multi_face_active
             
         is_valid_action = False
         if face_ok:
@@ -321,7 +360,12 @@ def main():
                 is_valid_action = True
         else:
             if detected_gesture in face_required_gestures:
-                last_log_message = "Face verification required! Show your face clearly."
+                if multi_face_active:
+                    last_log_message = "Multi-face detected! Blocked for security."
+                elif not liveness_ok:
+                    last_log_message = "Spoof detected! Liveness verification failed."
+                else:
+                    last_log_message = "Face verification required! Show your face clearly."
             
         if is_valid_action:
             if detected_gesture == active_gesture:

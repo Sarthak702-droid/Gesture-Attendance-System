@@ -165,5 +165,44 @@ class TestGestureAttendanceSystem(unittest.TestCase):
         stream.release()
         self.assertFalse(stream.started)
 
+    def test_check_liveness(self):
+        """Verify check_liveness function calculates Laplacian variance and checks limits."""
+        from utils import check_liveness
+        
+        # 1. Test empty/None frame
+        is_live, score = check_liveness(None)
+        self.assertFalse(is_live)
+        self.assertEqual(score, 0.0)
+        
+        # 2. Test standard textured frame
+        dummy_face = np.random.normal(128, 20, (100, 100, 3)).astype(np.uint8)
+        is_live, score = check_liveness(dummy_face)
+        self.assertIsInstance(score, float)
+        
+        # 3. Test flat uniform frame (print/blur mockup)
+        flat_face = np.zeros((100, 100, 3), dtype=np.uint8)
+        is_live, score = check_liveness(flat_face)
+        self.assertFalse(is_live)
+        self.assertEqual(score, 0.0)
+
+    def test_duration_parsing_in_payroll(self):
+        """Verify parse_duration_to_hours utility in dashboard.py."""
+        from dashboard import parse_duration_to_hours
+        
+        self.assertEqual(parse_duration_to_hours("N/A"), 0.0)
+        self.assertEqual(parse_duration_to_hours(""), 0.0)
+        self.assertEqual(parse_duration_to_hours(None), 0.0)
+        
+        # Seconds
+        self.assertAlmostEqual(parse_duration_to_hours("3600 secs"), 1.0)
+        self.assertAlmostEqual(parse_duration_to_hours("1800 secs"), 0.5)
+        
+        # Minutes
+        self.assertAlmostEqual(parse_duration_to_hours("60 mins"), 1.0)
+        self.assertAlmostEqual(parse_duration_to_hours("30 mins"), 0.5)
+        
+        # Hours
+        self.assertAlmostEqual(parse_duration_to_hours("2 hours"), 2.0)
+
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,32 @@ def play_beep_sound(success=True):
     except Exception:
         pass  # Fallback if audio device is unavailable
 
+def check_liveness(face_crop):
+    """
+    Analyzes Laplacian variance on the face crop to detect paper prints or screen spoofs.
+    Human skin texture yields medium variance (e.g. 60 - 800).
+    Flat prints look blurry to the camera and have low variance (< LIVENESS_THRESHOLD).
+    Screens have extremely high variance (> 1200) due to moire pattern/pixel grids/glare,
+    or low variance if flat and out of focus.
+    Returns (is_live, score).
+    """
+    if face_crop is None or face_crop.size == 0:
+        return False, 0.0
+    
+    if len(face_crop.shape) == 3:
+        gray = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = face_crop
+        
+    score = cv2.Laplacian(gray, cv2.CV_64F).var()
+    
+    import config
+    threshold = getattr(config, "LIVENESS_THRESHOLD", 60.0)
+    
+    # Check if within typical real human skin texture range
+    is_live = (threshold <= score <= 1200.0)
+    return is_live, score
+
 def draw_premium_hud(frame, active_gesture, hold_ratio, student_name, last_log_message):
     """
     Draws a modern, glassmorphic HUD on the frame.
