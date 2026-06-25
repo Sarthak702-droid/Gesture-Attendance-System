@@ -32,6 +32,13 @@ def main():
     # Prompt for employee name
     employee_name = get_student_name()
     
+    # Play login voice greeting in Odia (runs asynchronously in a thread)
+    try:
+        from tts import play_login_greeting_tts
+        play_login_greeting_tts(employee_name)
+    except Exception as e:
+        print(f"[WARNING] Login greeting error: {e}")
+        
     # Start the local GPS web server in the background
     local_ip = get_local_ip()
     start_gps_server()
