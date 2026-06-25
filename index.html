@@ -184,7 +184,7 @@
       <div class="brand">◐ Pulse Attendance</div>
       <nav class="nav">
         <button id="nav-overview" class="active" onclick="switchTab('overview')">Overview</button>
-        <button id="nav-payroll" onclick="switchTab('payroll')">Wages & Payroll</button>
+        <button id="nav-payroll" onclick="switchTab('payroll')">Shift Summary & Reports</button>
         <span class="group-label">Data Sync</span>
         <div class="status-badge" style="margin-left: 10px; margin-right: 10px;">
           <div id="status-dot" class="status-dot"></div>
@@ -289,53 +289,40 @@
       </div>
     </div>
 
-    <!-- Tab 2: Wages & Payroll Dashboard -->
+    <!-- Tab 2: Shift Logs & Reports -->
     <div id="tab-payroll" class="tab-content">
       <!-- Config Controls -->
       <div class="filters-bar">
         <div class="filter-item">
-          <label for="pay-rate">Hourly Rate (Rs.)</label>
-          <input type="number" id="pay-rate" value="500" step="50" onchange="calculatePayroll()" />
-        </div>
-        <div class="filter-item">
-          <label for="penalty-rate">Late Penalty (Rs.)</label>
-          <input type="number" id="penalty-rate" value="100" step="10" onchange="calculatePayroll()" />
-        </div>
-        <div class="filter-item">
           <label for="office-start">Office Expected Start Time</label>
-          <input type="text" id="office-start" value="09:00" placeholder="e.g. 09:00" onchange="calculatePayroll()" />
+          <input type="text" id="office-start" value="09:00" placeholder="e.g. 09:00" onchange="calculateShiftSummary()" />
         </div>
       </div>
 
-      <!-- Payroll KPIs -->
+      <!-- Shift KPIs -->
       <div class="kpis">
-        <div class="kpi">
-          <div class="label">Total Wages Paid</div>
-          <div class="value" id="kpi-payroll-wages">Rs. 0.00</div>
-          <div class="delta up" id="kpi-payroll-wages-delta">estimated</div>
-        </div>
         <div class="kpi">
           <div class="label">Total Net Hours</div>
           <div class="value" id="kpi-payroll-hours">0.00 hrs</div>
           <div class="delta up">worked duration</div>
         </div>
         <div class="kpi">
-          <div class="label">Total Penalties</div>
-          <div class="value" id="kpi-payroll-penalties">Rs. 0.00</div>
-          <div class="delta down">arrival deductions</div>
-        </div>
-        <div class="kpi">
           <div class="label">Late Arrivals</div>
           <div class="value" id="kpi-payroll-lates">0</div>
           <div class="delta down">lateness counts</div>
         </div>
+        <div class="kpi">
+          <div class="label">Total Shifts</div>
+          <div class="value" id="kpi-payroll-shifts">0</div>
+          <div class="delta up">shift count</div>
+        </div>
       </div>
 
-      <!-- Payroll Table Panel -->
+      <!-- Shift Table Panel -->
       <div class="panel">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h3 style="margin: 0;">Daily Wages Breakdown</h3>
-          <button class="btn-primary" onclick="downloadPayrollCSV()">Export Payroll CSV</button>
+          <h3 style="margin: 0;">Daily Shift Breakdown</h3>
+          <button class="btn-primary" onclick="downloadShiftCSV()">Export Shift CSV</button>
         </div>
         <div class="table-container">
           <table id="payroll-table">
@@ -348,13 +335,11 @@
                 <th>Breaks</th>
                 <th>Net Hrs</th>
                 <th>Late</th>
-                <th>Penalty</th>
-                <th>Wage</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              <tr><td colspan="10" style="text-align: center; color: var(--muted);">No records found</td></tr>
+              <tr><td colspan="8" style="text-align: center; color: var(--muted);">No records found</td></tr>
             </tbody>
           </table>
         </div>
@@ -548,7 +533,7 @@
       renderSVGChart();
       renderLastSeenTable();
       renderRecentEventsTable();
-      calculatePayroll();
+      calculateShiftSummary();
     }
 
     // Render Tab 1 KPIs
@@ -740,10 +725,8 @@
       return parts[0] * 60 + (parts[1] || 0);
     }
 
-    // Calculate wages and late arrival penalties
-    function calculatePayroll() {
-      const hourlyRate = parseFloat(document.getElementById("pay-rate").value) || 500.0;
-      const penaltyRate = parseFloat(document.getElementById("penalty-rate").value) || 100.0;
+    // Calculate shift summaries and late arrivals
+    function calculateShiftSummary() {
       const officeStartStr = document.getElementById("office-start").value || "09:00";
       const startLimitMin = timeToMin(officeStartStr);
 
@@ -793,8 +776,6 @@
         let lateMin = 0;
         let rawHours = 0;
         let netHours = 0;
-        let penalty = 0;
-        let wage = 0;
         let status = "Incomplete Shift";
 
         if (earliestIn) {
@@ -802,13 +783,11 @@
           if (checkInMin > startLimitMin) {
             lateArrival = true;
             lateMin = checkInMin - startLimitMin;
-            penalty += penaltyRate;
           }
 
           if (latestOut) {
             rawHours = (latestOut.Timestamp - earliestIn.Timestamp) / 3600.0;
             netHours = Math.max(0, rawHours - breakHours);
-            wage = Math.max(0, netHours * hourlyRate - penalty);
             status = "Completed";
           } else {
             status = "Checked In / Active";
@@ -826,50 +805,43 @@
           NetHours: netHours,
           Late: lateArrival ? 'Yes' : 'No',
           LateMins: lateMin,
-          Penalty: penalty,
-          Wage: wage,
           Status: status
         });
       });
 
-      // Render Payroll metrics & table
-      renderPayrollDashboard();
+      // Render Shift metrics & table
+      renderShiftDashboard();
     }
 
-    // Render tab 2 views
-    function renderPayrollDashboard() {
+    // Render Tab 2 Shift Summary views
+    function renderShiftDashboard() {
       const tbody = document.querySelector("#payroll-table tbody");
       
       if (payrollCalculated.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--muted);">No records found</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--muted);">No records found</td></tr>`;
         
         // Zero metrics
-        document.getElementById("kpi-payroll-wages").innerText = "Rs. 0.00";
         document.getElementById("kpi-payroll-hours").innerText = "0.00 hrs";
-        document.getElementById("kpi-payroll-penalties").innerText = "Rs. 0.00";
         document.getElementById("kpi-payroll-lates").innerText = "0";
+        document.getElementById("kpi-payroll-shifts").innerText = "0";
         return;
       }
 
       // Sum totals
-      let totalWages = 0;
       let totalHours = 0;
-      let totalPenalties = 0;
       let latesCount = 0;
+      let shiftsCount = payrollCalculated.length;
 
       payrollCalculated.forEach(p => {
         if (p.Status === 'Completed') {
-          totalWages += p.Wage;
           totalHours += p.NetHours;
         }
-        totalPenalties += p.Penalty;
         if (p.Late === 'Yes') latesCount++;
       });
 
-      document.getElementById("kpi-payroll-wages").innerText = `Rs. ${totalWages.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       document.getElementById("kpi-payroll-hours").innerText = `${totalHours.toFixed(2)} hrs`;
-      document.getElementById("kpi-payroll-penalties").innerText = `Rs. ${totalPenalties.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       document.getElementById("kpi-payroll-lates").innerText = latesCount;
+      document.getElementById("kpi-payroll-shifts").innerText = shiftsCount;
 
       let html = '';
       payrollCalculated.sort((a,b) => b.Date.localeCompare(a.Date)).forEach(p => {
@@ -889,8 +861,6 @@
             <td>${p.BreakHours.toFixed(2)} hrs</td>
             <td><strong>${p.NetHours.toFixed(2)} hrs</strong></td>
             <td>${latePill}</td>
-            <td>Rs. ${p.Penalty}</td>
-            <td><strong>Rs. ${p.Wage.toFixed(2)}</strong></td>
             <td><span class="${pillClass}">${p.Status}</span></td>
           </tr>
         `;
@@ -898,12 +868,12 @@
       tbody.innerHTML = html;
     }
 
-    // Export Payroll Table to CSV file
-    function downloadPayrollCSV() {
+    // Export Shift Table to CSV file
+    function downloadShiftCSV() {
       if (payrollCalculated.length === 0) return;
       
       const csvRows = [
-        ["Employee", "Date", "IN", "OUT", "Breaks (hrs)", "Net Hrs", "Late", "Late Mins", "Penalty (Rs)", "Wage (Rs)", "Status"]
+        ["Employee", "Date", "IN", "OUT", "Breaks (hrs)", "Net Hrs", "Late", "Late Mins", "Status"]
       ];
 
       payrollCalculated.forEach(p => {
@@ -916,8 +886,6 @@
           p.NetHours.toFixed(2),
           p.Late,
           p.LateMins,
-          p.Penalty,
-          p.Wage.toFixed(2),
           p.Status
         ]);
       });
@@ -928,7 +896,7 @@
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
       link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `Payroll_Report_${new Date().toISOString().substring(0,10)}.csv`);
+      link.setAttribute("download", `Shift_Report_${new Date().toISOString().substring(0,10)}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
