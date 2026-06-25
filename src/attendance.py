@@ -152,6 +152,31 @@ def mark_attendance(name, status, location, evidence_path):
         # Sync to formatted Excel sheet
         sync_to_excel()
         
+        # Asynchronously push updates to GitHub repository
+        git_push_logs_async()
+        
         return True, f"Successfully logged {status} for {name}!"
     except Exception as e:
         return False, f"Error writing to attendance file: {e}"
+
+def git_push_logs_async():
+    """
+    Asynchronously stages, commits, and pushes attendance logs to GitHub repository
+    in a background thread.
+    """
+    def push():
+        try:
+            import subprocess
+            # Stage files
+            subprocess.run(["git", "add", "data/attendance.csv", "data/attendance.xlsx"], capture_output=True)
+            # Commit with auto message
+            subprocess.run(["git", "commit", "-m", "Auto-update attendance logs [skip ci]"], capture_output=True)
+            # Push
+            subprocess.run(["git", "push", "origin", "main"], capture_output=True)
+            print("[AUTO-GIT] Successfully pushed attendance logs to GitHub repository.")
+        except Exception as e:
+            print(f"[WARNING] Auto-git push failed: {e}")
+            
+    import threading
+    t = threading.Thread(target=push, daemon=True)
+    t.start()

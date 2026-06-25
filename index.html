@@ -397,39 +397,79 @@
       document.getElementById("nav-" + tabId).classList.add("active");
     }
 
-    // Poll live local API
+    // Poll live local API or fallback to relative path / GitHub data
     function pollLocalAPI() {
-      fetch("http://localhost:5000/data/attendance.csv")
-        .then(response => {
-          if (response.ok) {
-            return response.text();
-          }
-          throw new Error("Local API inactive");
-        })
-        .then(csvText => {
-          if (csvText && csvText.trim().length > 0) {
-            // Live sync active
-            document.getElementById("status-dot").className = "status-dot active";
-            document.getElementById("status-text").innerText = "Live Sync Active";
-            document.getElementById("drag-drop-zone").style.display = "none";
-            
-            // Parse & save
-            localStorage.setItem("attendance_csv", csvText);
-            parseCSVString(csvText);
-          }
-        })
-        .catch(err => {
-          // Offline fallback
-          document.getElementById("status-dot").className = "status-dot offline";
-          document.getElementById("status-text").innerText = "Local API Offline";
-          
-          const cached = localStorage.getItem("attendance_csv");
-          if (!cached) {
-            document.getElementById("drag-drop-zone").style.display = "block";
-          } else {
-            document.getElementById("drag-drop-zone").style.display = "none";
-          }
-        });
+      // List of sources to try in order of priority:
+      // 1. Local GPS/App server on port 5000 (real-time sync when camera app is active)
+      // 2. Relative path on same server (resolves to port 8000 on localhost, or deployment domain on hosted site)
+      // 3. Raw GitHub repository (instant fallback if hosted and local server is offline)
+      const urls = [
+        "http://localhost:5000/data/attendance.csv",
+        "./data/attendance.csv",
+        "https://raw.githubusercontent.com/Sarthak702-droid/Gesture-Attendance-System/main/data/attendance.csv"
+      ];
+      
+      let index = 0;
+      
+      function tryNext() {
+        if (index >= urls.length) {
+          setOfflineStatus();
+          return;
+        }
+        
+        const url = urls[index];
+        index++;
+        
+        fetch(url)
+          .then(response => {
+            if (response.ok) return response.text();
+            throw new Error("Failed to load: " + url);
+          })
+          .then(csvText => {
+            if (csvText && csvText.trim().length > 0) {
+              let statusText = "Sync Active";
+              let statusColor = "";
+              let statusClass = "status-dot active";
+              
+              if (url.includes("localhost:5000")) {
+                statusText = "Live Sync Active";
+              } else if (url.includes("raw.githubusercontent")) {
+                statusText = "GitHub Sync Active";
+                statusColor = "var(--accent)";
+              } else {
+                statusText = "Local Sync Active";
+              }
+              
+              document.getElementById("status-dot").className = statusClass;
+              document.getElementById("status-text").style.color = statusColor;
+              document.getElementById("status-text").innerText = statusText;
+              document.getElementById("drag-drop-zone").style.display = "none";
+              
+              localStorage.setItem("attendance_csv", csvText);
+              parseCSVString(csvText);
+            } else {
+              tryNext();
+            }
+          })
+          .catch(err => {
+            tryNext();
+          });
+      }
+      
+      tryNext();
+    }
+
+    function setOfflineStatus() {
+      document.getElementById("status-dot").className = "status-dot offline";
+      document.getElementById("status-text").style.color = "";
+      document.getElementById("status-text").innerText = "Sync Inactive";
+      
+      const cached = localStorage.getItem("attendance_csv");
+      if (!cached) {
+        document.getElementById("drag-drop-zone").style.display = "block";
+      } else {
+        document.getElementById("drag-drop-zone").style.display = "none";
+      }
     }
 
     // Handle drag and drop upload
