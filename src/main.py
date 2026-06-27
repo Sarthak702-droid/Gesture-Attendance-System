@@ -450,7 +450,43 @@ def main():
                 cv2.imshow("Gesture Attendance System", frame)
                 cv2.waitKey(100)
                 
-                # Play Odia TTS voice feedback
+                # Check for Kiosk Broadcasts
+                broadcast_message_to_speak = None
+                try:
+                    import json
+                    json_path = os.path.join("data", "broadcasts.json")
+                    if os.path.exists(json_path):
+                        with open(json_path, "r", encoding="utf-8") as f:
+                            broadcasts = json.load(f)
+                            
+                        updated = False
+                        for b in broadcasts:
+                            if b.get("active", True):
+                                target = b.get("target", "all").strip().lower()
+                                read_by = b.get("read_by", [])
+                                emp_name_clean = employee_name.strip().lower()
+                                
+                                # Match target: either 'all' or substring match
+                                matches_target = (target == "all") or (target in emp_name_clean) or (emp_name_clean in target)
+                                is_unread = employee_name not in read_by
+                                
+                                if matches_target and is_unread:
+                                    broadcast_message_to_speak = b.get("message")
+                                    read_by.append(employee_name)
+                                    b["read_by"] = read_by
+                                    updated = True
+                                    break  # Only handle one broadcast per check-in
+                                    
+                        if updated:
+                            with open(json_path, "w", encoding="utf-8") as f:
+                                json.dump(broadcasts, f, indent=2)
+                            # Push updated broadcasts database to github
+                            from attendance import git_push_logs_async
+                            git_push_logs_async()
+                except Exception as ex:
+                    print(f"[WARNING] Broadcasts lookup error: {ex}")
+
+                # Play TTS voice feedback
                 try:
                     from tts import play_attendance_tts
                     play_attendance_tts(employee_name, pending_status)
@@ -458,6 +494,52 @@ def main():
                     print(f"[WARNING] TTS error: {e}")
                     
                 cv2.waitKey(1000)
+                
+                # If there's an active announcement, display the banner and speak it synchronously
+                if broadcast_message_to_speak:
+                    # Draw a nice dark orange announcement popup box
+                    ann_overlay = frame.copy()
+                    cv2.rectangle(ann_overlay, (0, 0), (w, h), (30, 20, 10), -1)
+                    cv2.rectangle(ann_overlay, (20, 20), (w - 20, h - 20), (0, 165, 255), 2)
+                    cv2.addWeighted(ann_overlay, 0.85, frame, 0.15, 0, frame)
+                    
+                    cv2.putText(frame, "ANNOUNCEMENT FOR YOU:", (50, 80),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2, cv2.LINE_AA)
+                    
+                    # Wrap message text to fit screen
+                    msg_text = broadcast_message_to_speak
+                    words = msg_text.split()
+                    lines = []
+                    current_line = []
+                    for word in words:
+                        current_line.append(word)
+                        test_str = " ".join(current_line)
+                        (tw, th), _ = cv2.getTextSize(test_str, cv2.FONT_HERSHEY_SIMPLEX, 0.65, 1)
+                        if tw > w - 100:
+                            current_line.pop()
+                            lines.append(" ".join(current_line))
+                            current_line = [word]
+                    if current_line:
+                        lines.append(" ".join(current_line))
+                        
+                    y_offset = 140
+                    for line in lines:
+                        cv2.putText(frame, line, (50, y_offset),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)
+                        y_offset += 35
+                        
+                    cv2.putText(frame, "Closing camera feed after announcement...", (50, h - 55),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1, cv2.LINE_AA)
+                    
+                    cv2.imshow("Gesture Attendance System", frame)
+                    cv2.waitKey(200)
+                    
+                    try:
+                        from tts import play_broadcast_tts
+                        play_broadcast_tts(broadcast_message_to_speak)
+                    except Exception as ex:
+                        print(f"[WARNING] Broadcast speech error: {ex}")
+                        cv2.waitKey(3000) # Fallback if TTS fails
                 
                 print(f"[SUCCESS] Attendance {pending_status} logged for {employee_name} at {final_location}!")
                 print(f"[SUCCESS] Evidence snapshot saved to: {evidence_path}")

@@ -51,3 +51,23 @@ def play_attendance_tts(name, status):
         
     print(f"[INFO] Speaking attendance confirmation: '{phrase}'")
     speak_text_async(phrase)
+
+def speak_text_sync(phrase):
+    """
+    Helper to speak English text synchronously using Windows PowerShell Speech Synthesizer.
+    This blocks the thread until speaking completes.
+    """
+    try:
+        safe_phrase = phrase.replace("'", "''")
+        cmd = f"Add-Type -AssemblyName System.Speech; $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; $synth.Speak('{safe_phrase}')"
+        subprocess.run(["powershell", "-Command", cmd], capture_output=True)
+    except Exception as e:
+        print(f"[WARNING] Sync Speech synthesis error: {e}")
+
+def play_broadcast_tts(message):
+    """
+    Plays the HR broadcast announcement aloud, blocking until done.
+    """
+    phrase = f"Attention: Message from H R. {message}"
+    print(f"[INFO] Speaking HR broadcast: '{phrase}'")
+    speak_text_sync(phrase)

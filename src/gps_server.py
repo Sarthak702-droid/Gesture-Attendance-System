@@ -180,6 +180,22 @@ class GPSServerHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-type", "text/plain")
                 self.end_headers()
                 self.wfile.write(b"")
+        elif self.path == "/data/broadcasts.json":
+            import os
+            json_path = os.path.join("data", "broadcasts.json")
+            if os.path.exists(json_path):
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "application/json; charset=utf-8")
+                self.end_headers()
+                with open(json_path, "rb") as f:
+                    self.wfile.write(f.read())
+            else:
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(b"[]")
         else:
             self.send_response(404)
             self.end_headers()
@@ -203,6 +219,57 @@ class GPSServerHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(400)
                 self.end_headers()
+        elif self.path == "/api/broadcasts":
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            try:
+                data = json.loads(post_data)
+                action = data.get("action")
+                
+                import os
+                json_path = os.path.join("data", "broadcasts.json")
+                
+                broadcasts = []
+                if os.path.exists(json_path):
+                    with open(json_path, "r", encoding="utf-8") as f:
+                        try:
+                            broadcasts = json.load(f)
+                        except Exception:
+                            broadcasts = []
+                            
+                if action == "add":
+                    b_data = data.get("broadcast", {})
+                    new_b = {
+                        "id": "b_" + str(int(time.time())),
+                        "target": b_data.get("target", "all").strip(),
+                        "message": b_data.get("message", "").strip(),
+                        "created_at": datetime.now().isoformat() + "Z",
+                        "read_by": [],
+                        "active": True
+                    }
+                    broadcasts.append(new_b)
+                elif action == "delete":
+                    b_id = data.get("id")
+                    broadcasts = [b for b in broadcasts if b.get("id") != b_id]
+                
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(broadcasts, f, indent=2)
+                
+                # Push back to github
+                from attendance import git_push_logs_async
+                git_push_logs_async()
+                
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"status":"success"}')
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(f'{{"error":"{str(e)}"}}'.encode('utf-8'))
 
 def start_gps_server():
     """Starts the local GPS HTTP server on port 5000 in a daemon background thread."""
