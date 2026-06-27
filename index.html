@@ -338,10 +338,11 @@
                 <th>Net Hrs</th>
                 <th>Late</th>
                 <th>Status</th>
+                <th>Voice Excuse</th>
               </tr>
             </thead>
             <tbody>
-              <tr><td colspan="8" style="text-align: center; color: var(--muted);">No records found</td></tr>
+              <tr><td colspan="9" style="text-align: center; color: var(--muted);">No records found</td></tr>
             </tbody>
           </table>
         </div>
@@ -403,6 +404,13 @@
       </div>
       <div id="security-alert-banner" style="background: #fef2f2; border: 1px solid #fee2e2; color: #991b1b; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; display: none; align-items: center; gap: 8px;">
         ⚠️ Warning: night lock intrusion detected! View snapshots below.
+      </div>
+
+      <!-- Remote Alarm Control Buttons -->
+      <div class="panel" style="margin-bottom: 24px; display: flex; gap: 12px; align-items: center; background: #faf9f6; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px;">
+        <span style="font-weight: 500; font-size: 13px; color: var(--muted);">Kiosk Controls:</span>
+        <button class="pill bad" onclick="triggerRemoteAlarm()" style="cursor: pointer; font-weight: 600; font-size: 12px; padding: 6px 12px; border: none; border-radius: 4px;">🚨 Sound Warning Siren</button>
+        <button class="pill good" onclick="resetRemoteAlarm()" style="cursor: pointer; font-weight: 600; font-size: 12px; padding: 6px 12px; border: none; border-radius: 4px;">Reset Kiosk Lockdown</button>
       </div>
 
       <!-- Security KPIs -->
@@ -605,7 +613,8 @@
               Time: row.Time || '',
               Location: row.Location || '',
               Timestamp: parseInt(row.Timestamp) || 0,
-              Duration: row.Duration || ''
+              Duration: row.Duration || '',
+              Voice_Excuse: row.Voice_Excuse || ''
             };
           });
 
@@ -920,7 +929,8 @@
           NetHours: netHours,
           Late: lateArrival ? 'Yes' : 'No',
           LateMins: lateMin,
-          Status: status
+          Status: status,
+          VoiceExcuse: earliestIn && earliestIn.Voice_Excuse ? earliestIn.Voice_Excuse : ''
         });
       });
 
@@ -967,6 +977,12 @@
 
         const latePill = p.Late === 'Yes' ? '<span class="pill bad">Yes</span>' : '<span class="pill good">No</span>';
 
+        let audioControl = '<span style="color: var(--muted); font-style: italic;">No excuse</span>';
+        if (p.VoiceExcuse) {
+          const audioUrl = `./data/evidence/${p.VoiceExcuse}`;
+          audioControl = `<audio src="${audioUrl}" controls style="max-height: 24px; max-width: 140px; vertical-align: middle;"></audio>`;
+        }
+
         html += `
           <tr>
             <td><strong>${p.Name}</strong></td>
@@ -977,6 +993,7 @@
             <td><strong>${p.NetHours.toFixed(2)} hrs</strong></td>
             <td>${latePill}</td>
             <td><span class="${pillClass}">${p.Status}</span></td>
+            <td>${audioControl}</td>
           </tr>
         `;
       });
@@ -1328,6 +1345,37 @@
     function closeSecurityModal() {
       const modal = document.getElementById("security-modal");
       if (modal) modal.style.display = "none";
+    }
+
+    // Remote Alarm Controls
+    function triggerRemoteAlarm() {
+      if (!confirm("🚨 Are you sure you want to sound the warning siren and lockdown the physical kiosk?")) return;
+      
+      fetch("http://localhost:5000/api/security/trigger-alarm", { method: "POST" })
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error("Trigger failed");
+        })
+        .then(() => {
+          alert("Siren warning sent successfully. Kiosk is now in LOCKDOWN mode.");
+        })
+        .catch(err => {
+          alert("Failed to send remote command: " + err.message);
+        });
+    }
+
+    function resetRemoteAlarm() {
+      fetch("http://localhost:5000/api/security/reset-alarm", { method: "POST" })
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error("Reset failed");
+        })
+        .then(() => {
+          alert("Lockdown reset command sent. Kiosk is restoring normal check-in loops.");
+        })
+        .catch(err => {
+          alert("Failed to send remote command: " + err.message);
+        });
     }
   </script>
 </body>

@@ -39,4 +39,9 @@ OFFICE_END_TIME = "17:00"    # Expected check-out time (24-hour format)
 HOURLY_RATE = 500.0          # Employee hourly pay rate
 LATE_PENALTY_RATE = 100.0    # Deducted amount per late arrival
 
+# Network & Challenge Verification
+VALIDATE_OFFICE_NETWORK = True
+ALLOWED_LOCAL_SUBNET = "192.168"
+LIVENESS_CHALLENGE_ENABLED = True
+
 

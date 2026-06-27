@@ -63,7 +63,7 @@ def sync_to_excel():
     except Exception as e:
         print(f"[WARNING] Failed to sync to Excel: {e}")
 
-def mark_attendance(name, status, location, evidence_path):
+def mark_attendance(name, status, location, evidence_path, voice_excuse_path=""):
     """
     Appends a new attendance record (including location, day of week & evidence snapshot) to the CSV.
     Prevents duplicate entries within the cooldown window (5 minutes).
@@ -136,7 +136,7 @@ def mark_attendance(name, status, location, evidence_path):
         with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if write_header:
-                writer.writerow(["Name", "Status", "Date", "Day", "Time", "Location", "Evidence_Path", "Timestamp", "Duration"])
+                writer.writerow(["Name", "Status", "Date", "Day", "Time", "Location", "Evidence_Path", "Timestamp", "Duration", "Voice_Excuse"])
             writer.writerow([
                 name.strip(), 
                 status.strip().upper(), 
@@ -146,7 +146,8 @@ def mark_attendance(name, status, location, evidence_path):
                 location.strip(), 
                 evidence_path.strip(), 
                 current_ts,
-                duration_str
+                duration_str,
+                voice_excuse_path.strip()
             ])
             
         # Sync to formatted Excel sheet

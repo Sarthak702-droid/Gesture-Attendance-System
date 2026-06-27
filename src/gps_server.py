@@ -12,6 +12,9 @@ GPS_DATA = {
     "timestamp": None
 }
 
+# Global variable for remote alarm trigger commands
+REMOTE_ALARM_TRIGGER = False
+
 def get_local_ip():
     """Retrieves the local IP address of the machine in the network."""
     try:
@@ -220,16 +223,43 @@ class GPSServerHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
+        elif self.path == "/api/security/poll-command":
+            global REMOTE_ALARM_TRIGGER
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"alarm": REMOTE_ALARM_TRIGGER}).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
             
     def do_POST(self):
+        global REMOTE_ALARM_TRIGGER
+        import config
         if self.path == "/submit":
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')
             params = urllib.parse.parse_qs(post_data)
             
+            # Retrieve client IP address
+            client_ip = self.client_address[0]
+            
+            # Network Validation
+            validate_net = getattr(config, "VALIDATE_OFFICE_NETWORK", True)
+            allowed_sub = getattr(config, "ALLOWED_LOCAL_SUBNET", "192.168")
+            
+            is_local_client = client_ip in ["127.0.0.1", "localhost", "::1"]
+            is_allowed_net = client_ip.startswith(allowed_sub) or is_local_client
+            
+            if validate_net and not is_allowed_net:
+                self.send_response(403)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(f"Access Denied: Please connect to office Wi-Fi network ({allowed_sub}.x.x) to submit GPS coordinates.".encode("utf-8"))
+                return
+                
             global GPS_DATA
             if 'lat' in params and 'lon' in params:
                 GPS_DATA["latitude"] = float(params['lat'][0])
@@ -237,12 +267,27 @@ class GPSServerHandler(BaseHTTPRequestHandler):
                 GPS_DATA["timestamp"] = time.time()
                 
                 self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Content-type", "text/plain")
                 self.end_headers()
                 self.wfile.write(b"OK")
             else:
                 self.send_response(400)
                 self.end_headers()
+        elif self.path == "/api/security/trigger-alarm":
+            REMOTE_ALARM_TRIGGER = True
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"success","alarm":true}')
+        elif self.path == "/api/security/reset-alarm":
+            REMOTE_ALARM_TRIGGER = False
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"success","alarm":false}')
         elif self.path == "/api/broadcasts":
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')

@@ -28,6 +28,20 @@ def get_student_name():
     print("="*50 + "\n")
     return name
 
+remote_alarm_active = False
+
+def check_remote_alarm_command():
+    global remote_alarm_active
+    try:
+        import urllib.request
+        import json
+        req = urllib.request.Request("http://localhost:5000/api/security/poll-command")
+        with urllib.request.urlopen(req, timeout=1) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            remote_alarm_active = data.get("alarm", False)
+    except Exception:
+        pass
+
 def main():
     # Prompt for employee name
     employee_name = get_student_name()
@@ -93,19 +107,54 @@ def main():
     pending_status = None  # Can be "IN", "OUT", "URGENT_EXIT", "URGENT_RETURN"
     last_log_message = "Show Thumbs Up (👍) for IN, Peace (✌️) for OUT, Index Up (☝️) for Exit, or 3-Fingers for Return."
     
+    # Challenge-Response Liveness states
+    challenge_active = False
+    challenge_step = 0
+    challenge_gestures = []
+    
     print(f"[INFO] Attendance ready. Show a selection gesture to begin.")
     
+    frame_counter = 0
     while True:
         grabbed, frame = cap.read()
         if not grabbed or frame is None:
             time.sleep(0.1)
             continue
             
+        frame_counter += 1
+        if frame_counter % 30 == 0:
+            import threading
+            threading.Thread(target=check_remote_alarm_command, daemon=True).start()
+            
         # Flip frame horizontally if using local USB/laptop webcam
         if isinstance(config.CAMERA_SOURCE, int):
             frame = cv2.flip(frame, 1)
             
         h, w, _ = frame.shape
+
+        # Remote Alarm Intervention
+        if remote_alarm_active:
+            # Play siren beep
+            import threading
+            from utils import play_beep_sound
+            if frame_counter % 15 == 0:
+                threading.Thread(target=play_beep_sound, args=(False,), daemon=True).start()
+                
+            # Render flashing red lock down HUD overlay
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, 200), -1)
+            cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+            
+            cv2.putText(frame, "🚨 REMOTE LOCKDOWN ACTIVE 🚨", (w // 2 - 320, h // 2 - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 255, 255), 3, cv2.LINE_AA)
+            cv2.putText(frame, "Kiosk Disabled: Remote Alarm Siren Triggered", (w // 2 - 300, h // 2 + 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1, cv2.LINE_AA)
+                        
+            cv2.imshow("Gesture Attendance System", frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q') or key == ord('Q'):
+                break
+            continue
 
         # Check if Surveillance System night lock is active
         if getattr(config, "SURVEILLANCE_ENABLED", False) and surveillance.is_lock_hours():
@@ -352,12 +401,17 @@ def main():
             
         is_valid_action = False
         if face_ok:
-            if detected_gesture in ["thumbs_up", "peace", "pointing_up", "three_fingers"] and pending_status is None:
-                is_valid_action = True
-            elif detected_gesture == "open_palm" and pending_status is not None:
-                is_valid_action = True
-            elif detected_gesture == "fist" and pending_status is not None:
-                is_valid_action = True
+            if challenge_active:
+                target_challenge_gesture = challenge_gestures[challenge_step - 1]
+                if detected_gesture == target_challenge_gesture or detected_gesture == "fist":
+                    is_valid_action = True
+            else:
+                if detected_gesture in ["thumbs_up", "peace", "pointing_up", "three_fingers"] and pending_status is None:
+                    is_valid_action = True
+                elif detected_gesture == "open_palm" and pending_status is not None:
+                    is_valid_action = True
+                elif detected_gesture == "fist" and pending_status is not None:
+                    is_valid_action = True
         else:
             if detected_gesture in face_required_gestures:
                 if multi_face_active:
@@ -391,24 +445,92 @@ def main():
             
         # Trigger Attendance on complete hold progress
         if consecutive_frames >= REQUIRED_FRAMES and active_gesture is not None:
+            # First check if dynamic challenge is active
+            if challenge_active:
+                target_challenge_gesture = challenge_gestures[challenge_step - 1]
+                if active_gesture == target_challenge_gesture:
+                    play_beep_sound(success=True)
+                    if challenge_step == 1:
+                        challenge_step = 2
+                        consecutive_frames = 0
+                        active_gesture = None
+                        last_log_message = f"Challenge 1 Verified! Show {challenge_gestures[1].upper()} to confirm."
+                        continue
+                    elif challenge_step == 2:
+                        challenge_active = False
+                        challenge_step = 0
+                        # Auto-confirm! Bypasses open_palm. Proceed to log attendance directly!
+                        active_gesture = "open_palm"
+            
             if active_gesture == "thumbs_up" and pending_status is None:
                 pending_status = "IN"
-                last_log_message = "Selected: IN. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
                 play_beep_sound(success=True)
+                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True):
+                    import random
+                    possible = ["pointing_up", "peace", "thumbs_up"]
+                    if active_gesture in possible:
+                        possible.remove(active_gesture)
+                    challenge_gestures = random.sample(possible, 2)
+                    challenge_active = True
+                    challenge_step = 1
+                    consecutive_frames = 0
+                    active_gesture = None
+                    last_log_message = f"Liveness Check: Show {challenge_gestures[0].upper()} to verify."
+                else:
+                    last_log_message = "Selected: IN. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
             elif active_gesture == "peace" and pending_status is None:
                 pending_status = "OUT"
-                last_log_message = "Selected: OUT. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
                 play_beep_sound(success=True)
+                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True):
+                    import random
+                    possible = ["pointing_up", "peace", "thumbs_up"]
+                    if active_gesture in possible:
+                        possible.remove(active_gesture)
+                    challenge_gestures = random.sample(possible, 2)
+                    challenge_active = True
+                    challenge_step = 1
+                    consecutive_frames = 0
+                    active_gesture = None
+                    last_log_message = f"Liveness Check: Show {challenge_gestures[0].upper()} to verify."
+                else:
+                    last_log_message = "Selected: OUT. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
             elif active_gesture == "pointing_up" and pending_status is None:
                 pending_status = "URGENT_EXIT"
-                last_log_message = "Selected: URGENT EXIT. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
                 play_beep_sound(success=True)
+                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True):
+                    import random
+                    possible = ["pointing_up", "peace", "thumbs_up"]
+                    if active_gesture in possible:
+                        possible.remove(active_gesture)
+                    challenge_gestures = random.sample(possible, 2)
+                    challenge_active = True
+                    challenge_step = 1
+                    consecutive_frames = 0
+                    active_gesture = None
+                    last_log_message = f"Liveness Check: Show {challenge_gestures[0].upper()} to verify."
+                else:
+                    last_log_message = "Selected: URGENT EXIT. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
             elif active_gesture == "three_fingers" and pending_status is None:
                 pending_status = "URGENT_RETURN"
-                last_log_message = "Selected: URGENT RETURN. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
                 play_beep_sound(success=True)
+                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True):
+                    import random
+                    possible = ["pointing_up", "peace", "thumbs_up"]
+                    if active_gesture in possible:
+                        possible.remove(active_gesture)
+                    challenge_gestures = random.sample(possible, 2)
+                    challenge_active = True
+                    challenge_step = 1
+                    consecutive_frames = 0
+                    active_gesture = None
+                    last_log_message = f"Liveness Check: Show {challenge_gestures[0].upper()} to verify."
+                else:
+                    last_log_message = "Selected: URGENT RETURN. Hold Palm (✋) to Confirm or Fist (✊) to Cancel."
             elif active_gesture == "fist":
                 pending_status = None
+                challenge_active = False
+                challenge_step = 0
+                challenge_gestures = []
                 last_log_message = "Cancelled. Show a gesture (👍/✌️/☝️/3-Fingers) to select status."
                 play_beep_sound(success=False)
             elif active_gesture == "open_palm" and pending_status is not None:
@@ -428,8 +550,52 @@ def main():
                 else:
                     final_location = f"{config.DEFAULT_LATITUDE:.5f}, {config.DEFAULT_LONGITUDE:.5f} (Default)"
                     
+                # Check for late arrival voice recording
+                is_late = False
+                excuse_filename = ""
+                excuse_path = ""
+                
+                if pending_status in ["IN", "URGENT_RETURN"]:
+                    office_start_str = getattr(config, "OFFICE_START_TIME", "09:00")
+                    try:
+                        from datetime import datetime
+                        now_time_str = datetime.now().strftime("%H:%M")
+                        
+                        def time_to_min(t_str):
+                            parts = [int(x) for x in t_str.split(":")]
+                            return parts[0] * 60 + parts[1]
+                            
+                        if time_to_min(now_time_str) > time_to_min(office_start_str):
+                            is_late = True
+                    except Exception as ex:
+                        print(f"[WARNING] Late time parsing error: {ex}")
+                        
+                if is_late:
+                    excuse_filename = f"{employee_name.replace(' ', '_')}_excuse_{timestamp_str}.wav"
+                    excuse_path = os.path.join(config.EVIDENCE_DIR, excuse_filename)
+                    
+                    rec_overlay = frame.copy()
+                    cv2.rectangle(rec_overlay, (0, 0), (w, h), (10, 10, 80), -1)
+                    cv2.addWeighted(rec_overlay, 0.75, frame, 0.25, 0, frame)
+                    
+                    cv2.putText(frame, "LATE CHECK-IN DETECTED!", (50, h // 2 - 80),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3, cv2.LINE_AA)
+                    cv2.putText(frame, "Recording 5 seconds voice excuse...", (50, h // 2 - 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+                    cv2.putText(frame, "Speak your reason clearly now.", (50, h // 2 + 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1, cv2.LINE_AA)
+                                
+                    cv2.imshow("Gesture Attendance System", frame)
+                    cv2.waitKey(200)
+                    
+                    try:
+                        from voice_recorder import record_win_audio
+                        record_win_audio(excuse_path, 5)
+                    except Exception as ex:
+                        print(f"[WARNING] Failed to record voice excuse: {ex}")
+                        
                 # Mark Attendance (IN / OUT / URGENT_EXIT / URGENT_RETURN)
-                success, msg = mark_attendance(employee_name, pending_status, final_location, evidence_path)
+                success, msg = mark_attendance(employee_name, pending_status, final_location, evidence_path, excuse_filename)
                 
                 # Visual Confirmation Screen
                 confirm_overlay = frame.copy()
@@ -549,9 +715,17 @@ def main():
             active_gesture = None
             consecutive_frames = 0
             
-        # Draw HUD overlays on frame
-        hud_active_gesture = active_gesture if active_gesture else "thumbs_up"
         draw_premium_hud(frame, hud_active_gesture, hold_ratio, employee_name, last_log_message)
+        
+        # Draw dynamic liveness challenge overlay banner
+        if challenge_active:
+            target_challenge_gesture = challenge_gestures[challenge_step - 1]
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (20, h - 130), (w - 20, h - 85), (0, 165, 255), -1)
+            cv2.addWeighted(overlay, 0.45, frame, 0.55, 0, frame)
+            
+            cv2.putText(frame, f"LIVENESS CHALLENGE ({challenge_step}/2): Show {target_challenge_gesture.upper()}", 
+                        (40, h - 100), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)
         
         # Display current pending status if any
         if pending_status is not None:
