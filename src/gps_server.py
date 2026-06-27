@@ -190,12 +190,36 @@ class GPSServerHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 with open(json_path, "rb") as f:
                     self.wfile.write(f.read())
+        elif self.path == "/data/security_logs.json":
+            import os
+            json_path = os.path.join("data", "security_logs.json")
+            if os.path.exists(json_path):
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "application/json; charset=utf-8")
+                self.end_headers()
+                with open(json_path, "rb") as f:
+                    self.wfile.write(f.read())
             else:
                 self.send_response(200)
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Content-type", "application/json")
                 self.end_headers()
                 self.wfile.write(b"[]")
+        elif self.path.startswith("/data/alerts/"):
+            import os
+            filename = self.path.split("/")[-1]
+            img_path = os.path.join("data", "alerts", filename)
+            if os.path.exists(img_path) and filename:
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "image/jpeg")
+                self.end_headers()
+                with open(img_path, "rb") as f:
+                    self.wfile.write(f.read())
+            else:
+                self.send_response(404)
+                self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()

@@ -99,6 +99,35 @@ class SurveillanceSystem:
             cv2.imwrite(snapshot_path, frame)
             print(f"[SECURITY] Intruder alert! Snapshot saved to {snapshot_path}")
             
+            # Log the security incident in security_logs.json
+            try:
+                import json
+                logs_path = os.path.join("data", "security_logs.json")
+                logs = []
+                if os.path.exists(logs_path):
+                    with open(logs_path, "r", encoding="utf-8") as lf:
+                        try:
+                            logs = json.load(lf)
+                        except Exception:
+                            logs = []
+                
+                new_log = {
+                    "id": f"sec_{int(current_time)}",
+                    "timestamp": datetime.now().isoformat() + "Z",
+                    "snapshot_name": snapshot_name,
+                    "status": "UNAUTHORIZED INTRUSION"
+                }
+                logs.append(new_log)
+                
+                with open(logs_path, "w", encoding="utf-8") as lf:
+                    json.dump(logs, lf, indent=2)
+                
+                # Push the snapshot and log to GitHub
+                from attendance import git_push_logs_async
+                git_push_logs_async()
+            except Exception as ex:
+                print(f"[WARNING] Failed to write security logs: {ex}")
+            
             # Send Telegram alert in a background thread
             telegram_enabled = getattr(config, "TELEGRAM_ALERTS_ENABLED", False)
             if telegram_enabled:

@@ -186,6 +186,7 @@
         <button id="nav-overview" class="active" onclick="switchTab('overview')">Overview</button>
         <button id="nav-payroll" onclick="switchTab('payroll')">Shift Summary & Reports</button>
         <button id="nav-broadcasts" onclick="switchTab('broadcasts')">📢 Broadcasts</button>
+        <button id="nav-security" onclick="switchTab('security')">🔒 Security Logs</button>
         <span class="group-label">Data Sync</span>
         <div class="status-badge" style="margin-left: 10px; margin-right: 10px;">
           <div id="status-dot" class="status-dot"></div>
@@ -393,6 +394,63 @@
         </div>
       </div>
     </div>
+
+    <!-- Tab 4: Security Surveillance Logs -->
+    <div id="tab-security" class="tab-content">
+      <!-- Incidents Alert Banner -->
+      <div id="security-ok-banner" style="background: #ecfdf5; border: 1px solid #d1fae5; color: #065f46; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-weight: 500; display: flex; align-items: center; gap: 8px;">
+        ✅ Status: Secure (no night-time security intrusions detected)
+      </div>
+      <div id="security-alert-banner" style="background: #fef2f2; border: 1px solid #fee2e2; color: #991b1b; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; display: none; align-items: center; gap: 8px;">
+        ⚠️ Warning: night lock intrusion detected! View snapshots below.
+      </div>
+
+      <!-- Security KPIs -->
+      <div class="kpis" style="margin-bottom: 24px;">
+        <div class="kpi" id="kpi-sec-status-card" style="border-left: 4px solid var(--good);">
+          <div class="label">System Lock Status</div>
+          <div class="value" id="kpi-sec-status">Secure</div>
+          <div class="delta up" id="kpi-sec-status-sub">24/7 monitoring active</div>
+        </div>
+        <div class="kpi" id="kpi-sec-incidents-card">
+          <div class="label">Total Intrusions</div>
+          <div class="value" id="kpi-sec-count">0</div>
+          <div class="delta down" id="kpi-sec-count-sub">night logs</div>
+        </div>
+      </div>
+
+      <!-- Active Detections list -->
+      <div class="panel">
+        <h3 style="margin-top: 0;">🔒 Security Incident Logs</h3>
+        <div class="table-container" style="margin-top: 16px;">
+          <table id="security-table">
+            <thead>
+              <tr>
+                <th>Incident ID</th>
+                <th>Date & Time</th>
+                <th>Security Action</th>
+                <th>Intruder Snapshot</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="4" style="text-align: center; color: var(--muted);">No night-time alerts registered</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Image Snapshot Modal -->
+    <div id="security-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(8px);">
+      <div style="background: var(--surface); padding: 24px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); max-width: 680px; width: 90%; position: relative;">
+        <button onclick="closeSecurityModal()" style="position: absolute; top: 16px; right: 16px; background: transparent; border: none; font-size: 24px; cursor: pointer; color: var(--fg); font-weight: bold; line-height: 1;">&times;</button>
+        <h3 style="margin-top: 0; margin-bottom: 16px; color: var(--accent);" id="security-modal-title">Intruder Snapshot</h3>
+        <div style="text-align: center; border-radius: 8px; overflow: hidden; background: #000; display: flex; align-items: center; justify-content: center; min-height: 300px;">
+          <img id="security-modal-image" src="" alt="Intruder Camera Snapshot" style="max-width: 100%; max-height: 480px; object-fit: contain;" />
+        </div>
+        <div id="security-modal-meta" style="margin-top: 12px; font-size: 13px; color: var(--muted); text-align: left;"></div>
+      </div>
+    </div>
   </main>
 
   <script>
@@ -423,6 +481,10 @@
       // Load broadcasts and poll every 5 seconds
       loadBroadcasts();
       setInterval(loadBroadcasts, 5000);
+
+      // Load security logs and poll every 5 seconds
+      loadSecurityLogs();
+      setInterval(loadSecurityLogs, 5000);
     }
 
     // Toggle tab display
@@ -1131,6 +1193,141 @@
       if ([...select.options].some(opt => opt.value === currentSelection)) {
         select.value = currentSelection;
       }
+    }
+
+    let securityLogs = [];
+    let securityLogsReadOnly = false;
+    let alertsBaseUrl = ""; // Used to render the snapshot images dynamically
+
+    // Load active security intrusion logs
+    function loadSecurityLogs() {
+      // Priority endpoints:
+      // 1. Local port 5000 API
+      // 2. Relative path data/security_logs.json
+      // 3. GitHub CDN
+      const urls = [
+        "http://localhost:5000/data/security_logs.json",
+        "./data/security_logs.json",
+        "https://raw.githubusercontent.com/Sarthak702-droid/Gesture-Attendance-System/main/data/security_logs.json"
+      ];
+      
+      let index = 0;
+      
+      function tryNext() {
+        if (index >= urls.length) {
+          renderSecurityTable([]);
+          return;
+        }
+        
+        const url = urls[index];
+        index++;
+        
+        fetch(url)
+          .then(res => {
+            if (res.ok) return res.json();
+            throw new Error("Failed to load");
+          })
+          .then(data => {
+            securityLogs = data || [];
+            
+            // Set base URL for image alerts
+            if (url.includes("localhost:5000")) {
+              alertsBaseUrl = "http://localhost:5000/data/alerts/";
+            } else if (url.includes("raw.githubusercontent")) {
+              alertsBaseUrl = "https://raw.githubusercontent.com/Sarthak702-droid/Gesture-Attendance-System/main/data/alerts/";
+            } else {
+              alertsBaseUrl = "./data/alerts/";
+            }
+            
+            renderSecurityTable(securityLogs);
+          })
+          .catch(() => {
+            tryNext();
+          });
+      }
+      
+      tryNext();
+    }
+
+    // Render security alerts in the Surveillance table
+    function renderSecurityTable(list) {
+      const tbody = document.querySelector("#security-table tbody");
+      if (!tbody) return;
+      
+      const okBanner = document.getElementById("security-ok-banner");
+      const alertBanner = document.getElementById("security-alert-banner");
+      const kpiStatus = document.getElementById("kpi-sec-status");
+      const kpiStatusSub = document.getElementById("kpi-sec-status-sub");
+      const kpiStatusCard = document.getElementById("kpi-sec-status-card");
+      const kpiCount = document.getElementById("kpi-sec-count");
+      
+      const count = list.length;
+      if (kpiCount) kpiCount.innerText = count;
+      
+      if (count > 0) {
+        if (okBanner) okBanner.style.display = "none";
+        if (alertBanner) alertBanner.style.display = "flex";
+        if (kpiStatus) kpiStatus.innerText = "ALARM ALERT";
+        if (kpiStatusSub) kpiStatusSub.innerText = `${count} intrusions registered`;
+        if (kpiStatusCard) {
+          kpiStatusCard.style.borderLeft = "4px solid var(--bad)";
+        }
+      } else {
+        if (okBanner) okBanner.style.display = "flex";
+        if (alertBanner) alertBanner.style.display = "none";
+        if (kpiStatus) kpiStatus.innerText = "Secure";
+        if (kpiStatusSub) kpiStatusSub.innerText = "24/7 monitoring active";
+        if (kpiStatusCard) {
+          kpiStatusCard.style.borderLeft = "4px solid var(--good)";
+        }
+      }
+      
+      if (!list || list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--muted);">No night-time alerts registered</td></tr>`;
+        return;
+      }
+      
+      let html = '';
+      // Sort descending (latest logs first)
+      list.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).forEach(s => {
+        const dateStr = s.timestamp ? new Date(s.timestamp).toLocaleString() : 'N/A';
+        const imageUrl = alertsBaseUrl + s.snapshot_name;
+        
+        html += `
+          <tr>
+            <td><strong style="color: var(--muted);">${s.id}</strong></td>
+            <td>${dateStr}</td>
+            <td><span class="pill bad">SIREN WARNING TRIGGERED</span></td>
+            <td>
+              <button class="pill warn" onclick="openSecurityModal('${imageUrl}', '${dateStr}', '${s.id}')" style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border: none; font: inherit;">
+                👁️ View Snapshot
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+    }
+
+    // Modal Operations
+    function openSecurityModal(imgUrl, dateStr, id) {
+      const modal = document.getElementById("security-modal");
+      const modalImg = document.getElementById("security-modal-image");
+      const modalTitle = document.getElementById("security-modal-title");
+      const modalMeta = document.getElementById("security-modal-meta");
+      
+      if (modal && modalImg) {
+        modalImg.src = imgUrl;
+        if (modalTitle) modalTitle.innerText = `🚨 Intrusion Incident: ${id}`;
+        if (modalMeta) modalMeta.innerHTML = `📅 <strong>Timestamp:</strong> ${dateStr}<br>📸 <strong>Image Source:</strong> <a href="${imgUrl}" target="_blank" style="color: var(--accent); text-decoration: none;">${imgUrl}</a>`;
+        modal.style.display = "flex";
+      }
+    }
+
+    // Close Modal
+    function closeSecurityModal() {
+      const modal = document.getElementById("security-modal");
+      if (modal) modal.style.display = "none";
     }
   </script>
 </body>

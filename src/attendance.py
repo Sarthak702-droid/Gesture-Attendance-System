@@ -168,7 +168,7 @@ def git_push_logs_async():
         try:
             import subprocess
             # Stage files
-            subprocess.run(["git", "add", "data/attendance.csv", "data/attendance.xlsx", "data/broadcasts.json"], capture_output=True)
+            subprocess.run(["git", "add", "data/attendance.csv", "data/attendance.xlsx", "data/broadcasts.json", "data/security_logs.json", "data/alerts/"], capture_output=True)
             # Commit with auto message
             subprocess.run(["git", "commit", "-m", "Auto-update attendance logs [skip ci]"], capture_output=True)
             # Push
