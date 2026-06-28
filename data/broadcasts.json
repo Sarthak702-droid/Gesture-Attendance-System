@@ -19,5 +19,13 @@
       "Sarthak Tripathy"
     ],
     "active": true
+  },
+  {
+    "id": "b_1782646907",
+    "target": "all",
+    "message": "There is a meeting at 7pm",
+    "created_at": "2026-06-28T17:11:47.541809Z",
+    "read_by": [],
+    "active": true
   }
 ]
