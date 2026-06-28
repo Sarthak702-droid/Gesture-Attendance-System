@@ -111,6 +111,11 @@ def main():
     challenge_active = False
     challenge_step = 0
     challenge_gestures = []
+
+    is_owner = False
+    owner_name = getattr(config, "OWNER_NAME", "Sarthak Tripathy").strip().lower()
+    if owner_name in employee_name.lower() or employee_name.lower() in owner_name:
+        is_owner = True
     
     print(f"[INFO] Attendance ready. Show a selection gesture to begin.")
     
@@ -465,7 +470,7 @@ def main():
             if active_gesture == "thumbs_up" and pending_status is None:
                 pending_status = "IN"
                 play_beep_sound(success=True)
-                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True):
+                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True) and not is_owner:
                     import random
                     possible = ["pointing_up", "peace", "thumbs_up"]
                     if active_gesture in possible:
@@ -481,7 +486,7 @@ def main():
             elif active_gesture == "peace" and pending_status is None:
                 pending_status = "OUT"
                 play_beep_sound(success=True)
-                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True):
+                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True) and not is_owner:
                     import random
                     possible = ["pointing_up", "peace", "thumbs_up"]
                     if active_gesture in possible:
@@ -497,7 +502,7 @@ def main():
             elif active_gesture == "pointing_up" and pending_status is None:
                 pending_status = "URGENT_EXIT"
                 play_beep_sound(success=True)
-                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True):
+                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True) and not is_owner:
                     import random
                     possible = ["pointing_up", "peace", "thumbs_up"]
                     if active_gesture in possible:
@@ -513,7 +518,7 @@ def main():
             elif active_gesture == "three_fingers" and pending_status is None:
                 pending_status = "URGENT_RETURN"
                 play_beep_sound(success=True)
-                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True):
+                if getattr(config, "LIVENESS_CHALLENGE_ENABLED", True) and not is_owner:
                     import random
                     possible = ["pointing_up", "peace", "thumbs_up"]
                     if active_gesture in possible:
@@ -715,6 +720,7 @@ def main():
             active_gesture = None
             consecutive_frames = 0
             
+        hud_active_gesture = active_gesture if active_gesture else "thumbs_up"
         draw_premium_hud(frame, hud_active_gesture, hold_ratio, employee_name, last_log_message)
         
         # Draw dynamic liveness challenge overlay banner
