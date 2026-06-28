@@ -31,15 +31,29 @@
       background: transparent;
       border: none;
       text-align: left;
-      padding: 7px 10px; 
-      border-radius: 6px; 
-      color: var(--fg); 
+      padding: 9px 12px; 
+      border-radius: 8px; 
+      color: var(--muted); 
       font: inherit;
       cursor: pointer;
       width: 100%;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
     }
-    .nav button.active { background: var(--bg); font-weight: 500; }
-    .nav button:hover { background: var(--bg); }
+    .nav button.active { 
+      background: rgba(201, 100, 66, 0.08); 
+      color: var(--accent);
+      font-weight: 600; 
+      border-left: 3px solid var(--accent);
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+    }
+    .nav button:hover { 
+      background: rgba(201, 100, 66, 0.04); 
+      color: var(--fg);
+      padding-left: 15px;
+    }
     .nav .group-label { font-size: 11px; color: var(--muted); padding: 14px 10px 6px; text-transform: uppercase; letter-spacing: 0.06em; }
     
     /* Main Layout */
@@ -129,7 +143,18 @@
     /* KPIs */
     .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
     @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
-    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+    .kpi { 
+      background: var(--surface); 
+      border: 1px solid var(--border); 
+      border-radius: 10px; 
+      padding: 16px 18px; 
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .kpi:hover {
+      transform: translateY(-2px);
+      border-color: rgba(201, 100, 66, 0.25);
+      box-shadow: 0 10px 20px -10px rgba(0, 0, 0, 0.05), 0 0 1px 0 rgba(0,0,0,0.1);
+    }
     .kpi .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; font-weight: 500; }
     .kpi .value { font-size: 28px; letter-spacing: -0.02em; font-weight: 600; line-height: 1.1; }
     .kpi .delta { font-size: 12px; margin-top: 4px; font-weight: 500; }
@@ -137,7 +162,17 @@
     .kpi .delta.down { color: var(--bad); }
     
     /* Panels */
-    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+    .panel { 
+      background: var(--surface); 
+      border: 1px solid var(--border); 
+      border-radius: 10px; 
+      padding: 20px; 
+      margin-bottom: 16px; 
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .panel:hover {
+      box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.04), 0 0 1px 0 rgba(0,0,0,0.08);
+    }
     .panel h3 { margin: 0 0 16px; font-size: 14px; font-weight: 500; color: var(--fg); }
     .chart { height: 240px; background: linear-gradient(180deg, rgba(201,100,66,0.06), transparent); border-bottom: 1px solid var(--border); position: relative; overflow: hidden; border-radius: 6px; }
     .chart svg { width: 100%; height: 100%; display: block; }
@@ -148,6 +183,12 @@
     .table-container { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 10px 6px; border-top: 1px solid var(--border); }
+    table tbody tr {
+      transition: background-color 0.2s ease-in-out;
+    }
+    table tbody tr:hover {
+      background-color: rgba(201, 100, 66, 0.02);
+    }
     th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; border-top: none; }
     td { font-size: 13px; }
     
@@ -165,16 +206,35 @@
       color: white; 
       border: 1px solid var(--accent); 
       font-weight: 500;
-      transition: background 0.1s ease-in-out;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
     button.btn-primary:hover {
       background: #b05537;
       border-color: #b05537;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(201, 100, 66, 0.2);
+    }
+    button.btn-primary:active {
+      transform: translateY(0);
+      box-shadow: none;
     }
     
     /* View Switcher */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
     .tab-content { display: none; }
-    .tab-content.active { display: block; }
+    .tab-content.active { 
+      display: block; 
+      animation: fadeInUp 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    }
   </style>
 </head>
 <body>
@@ -821,14 +881,20 @@
         const xIn = xCenter - barW - 2;
         const yIn = padTop + chartH - inH;
         if (inH > 0) {
-          svg += `<rect x="${xIn}" y="${yIn}" width="${barW}" height="${inH}" fill="var(--accent)" rx="2" />`;
+          svg += `<rect x="${xIn}" y="${padTop + chartH}" width="${barW}" height="0" fill="var(--accent)" rx="2">
+            <animate attributeName="height" from="0" to="${inH}" dur="0.8s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1" />
+            <animate attributeName="y" from="${padTop + chartH}" to="${yIn}" dur="0.8s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1" />
+          </rect>`;
         }
 
         // Render check-outs bar (Muted)
         const xOut = xCenter + 2;
         const yOut = padTop + chartH - outH;
         if (outH > 0) {
-          svg += `<rect x="${xOut}" y="${yOut}" width="${barW}" height="${outH}" fill="var(--muted)" rx="2" opacity="0.6" />`;
+          svg += `<rect x="${xOut}" y="${padTop + chartH}" width="${barW}" height="0" fill="var(--muted)" rx="2" opacity="0.6">
+            <animate attributeName="height" from="0" to="${outH}" dur="0.8s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1" />
+            <animate attributeName="y" from="${padTop + chartH}" to="${yOut}" dur="0.8s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1" />
+          </rect>`;
         }
 
         // X labels (Short date)
