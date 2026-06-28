@@ -719,7 +719,7 @@ def main():
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1, cv2.LINE_AA)
                     
                     cv2.imshow("Gesture Attendance System", frame)
-                    cv2.waitKey(200)
+                    cv2.waitKey(3000)
                     
                     try:
                         from tts import play_broadcast_tts
