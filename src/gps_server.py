@@ -209,6 +209,22 @@ class GPSServerHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-type", "application/json")
                 self.end_headers()
                 self.wfile.write(b"[]")
+        elif self.path == "/data/config.json":
+            import os
+            json_path = os.path.join("data", "config.json")
+            if os.path.exists(json_path):
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "application/json; charset=utf-8")
+                self.end_headers()
+                with open(json_path, "rb") as f:
+                    self.wfile.write(f.read())
+            else:
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(b"{}")
         elif self.path.startswith("/data/alerts/"):
             import os
             filename = self.path.split("/")[-1]
@@ -288,6 +304,33 @@ class GPSServerHandler(BaseHTTPRequestHandler):
             self.send_header("Content-type", "application/json")
             self.end_headers()
             self.wfile.write(b'{"status":"success","alarm":false}')
+        elif self.path == "/api/config":
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            try:
+                data = json.loads(post_data)
+                
+                import os
+                json_path = os.path.join("data", "config.json")
+                
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                
+                # Push back to github
+                from attendance import git_push_logs_async
+                git_push_logs_async()
+                
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"status":"success"}')
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(f'{{"error":"{str(e)}"}}'.encode('utf-8'))
         elif self.path == "/api/broadcasts":
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')

@@ -187,6 +187,7 @@
         <button id="nav-payroll" onclick="switchTab('payroll')">Shift Summary & Reports</button>
         <button id="nav-broadcasts" onclick="switchTab('broadcasts')">📢 Broadcasts</button>
         <button id="nav-security" onclick="switchTab('security')">🔒 Security Logs</button>
+        <button id="nav-settings" onclick="switchTab('settings')">⚙️ Settings</button>
         <span class="group-label">Data Sync</span>
         <div class="status-badge" style="margin-left: 10px; margin-right: 10px;">
           <div id="status-dot" class="status-dot"></div>
@@ -459,6 +460,77 @@
         <div id="security-modal-meta" style="margin-top: 12px; font-size: 13px; color: var(--muted); text-align: left;"></div>
       </div>
     </div>
+
+    <!-- Tab 5: Dynamic Settings Console -->
+    <div id="tab-settings" class="tab-content">
+      <div id="settings-read-only-banner" style="background: #fffbeb; border: 1px solid #fef3c7; color: #92400e; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-weight: 500; display: none;">
+        ⚠️ Config Console is in Read-Only Mode (Offline or hosted page without local GPS server running). Changes cannot be saved.
+      </div>
+
+      <!-- Settings Layout -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 16px;">
+        
+        <!-- Standard Employee Settings -->
+        <div class="panel">
+          <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px; color: var(--fg);">
+            <span>📋 Standard Employee Settings</span>
+          </h3>
+          <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 20px;">
+            <div class="filter-item" style="flex: 1;">
+              <label for="cfg-start-time" style="font-weight: 500; margin-bottom: 6px; display: block;">Expected Office Start Time</label>
+              <input type="text" id="cfg-start-time" value="09:00" placeholder="e.g. 09:00" style="width: 100%;" />
+            </div>
+            <div class="filter-item" style="flex: 1;">
+              <label for="cfg-end-time" style="font-weight: 500; margin-bottom: 6px; display: block;">Expected Office End Time</label>
+              <input type="text" id="cfg-end-time" value="17:00" placeholder="e.g. 17:00" style="width: 100%;" />
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px;">
+              <input type="checkbox" id="cfg-liveness" checked style="width: 16px; height: 16px; cursor: pointer;" />
+              <label for="cfg-liveness" style="font-weight: 500; cursor: pointer;">Enforce Dynamic Liveness Challenge (👍/✊/✌️)</label>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+              <input type="checkbox" id="cfg-network" checked style="width: 16px; height: 16px; cursor: pointer;" onchange="document.getElementById('cfg-subnet-box').style.display = this.checked ? 'block' : 'none'" />
+              <label for="cfg-network" style="font-weight: 500; cursor: pointer;">Require Office Wi-Fi Network Validation</label>
+            </div>
+            
+            <div id="cfg-subnet-box" class="filter-item" style="margin-top: 4px; padding-left: 24px;">
+              <label for="cfg-subnet" style="font-weight: 500; margin-bottom: 4px; display: block; font-size: 12px; color: var(--muted);">Authorized Wi-Fi IP Subnet Prefix</label>
+              <input type="text" id="cfg-subnet" value="192.168" style="width: 100%;" />
+            </div>
+          </div>
+        </div>
+
+        <!-- VIP Owner Settings -->
+        <div class="panel" style="border-top: 4px solid var(--accent);">
+          <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px; color: var(--accent);">
+            <span>👑 VIP Owner Settings</span>
+          </h3>
+          <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 20px;">
+            <div class="filter-item" style="flex: 1;">
+              <label for="cfg-owner-name" style="font-weight: 500; margin-bottom: 6px; display: block;">Registered Owner Name</label>
+              <input type="text" id="cfg-owner-name" value="Sarthak Tripathy" placeholder="e.g. Sarthak Tripathy" style="width: 100%;" />
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px;">
+              <input type="checkbox" id="cfg-owner-exempt" checked style="width: 16px; height: 16px; cursor: pointer;" />
+              <label for="cfg-owner-exempt" style="font-weight: 500; cursor: pointer;">Exempt Owner from Lateness Excuse & Penalty</label>
+            </div>
+            
+            <div style="background: #f7fee7; border: 1px solid #d9f99d; color: #3f6212; padding: 12px; border-radius: 8px; font-size: 13px; margin-top: 24px; line-height: 1.4;">
+              💡 <strong>VIP Bypass Active:</strong> If exempt, the Owner bypasses liveness challenges and late check-in recording, enabling instant check-in.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Action Footer -->
+      <div class="panel" style="margin-top: 24px; text-align: right; background: #faf9f6;">
+        <button id="cfg-save-btn" class="btn-primary" onclick="saveConfig()" style="cursor: pointer; padding: 10px 24px; font-weight: 600;">Save Configuration</button>
+      </div>
+    </div>
   </main>
 
   <script>
@@ -493,6 +565,9 @@
       // Load security logs and poll every 5 seconds
       loadSecurityLogs();
       setInterval(loadSecurityLogs, 5000);
+
+      // Load dynamic configs
+      loadConfig();
     }
 
     // Toggle tab display
@@ -1376,6 +1451,96 @@
         .catch(err => {
           alert("Failed to send remote command: " + err.message);
         });
+    }
+
+    let hasLocalServer = false;
+
+    function loadConfig() {
+      fetch("http://localhost:5000/data/config.json")
+        .then(res => {
+          if (!res.ok) throw new Error("Status " + res.status);
+          hasLocalServer = true;
+          document.getElementById("settings-read-only-banner").style.display = "none";
+          document.getElementById("cfg-save-btn").disabled = false;
+          return res.json();
+        })
+        .catch(() => {
+          return fetch("./data/config.json")
+            .then(res => {
+              if (!res.ok) throw new Error("Status " + res.status);
+              document.getElementById("settings-read-only-banner").style.display = "block";
+              document.getElementById("cfg-save-btn").disabled = true;
+              return res.json();
+            })
+            .catch(() => {
+              const githubUrl = "https://raw.githubusercontent.com/Sarthak702-droid/Gesture-Attendance-System/main/data/config.json";
+              return fetch(githubUrl)
+                .then(res => {
+                  if (!res.ok) throw new Error("Status " + res.status);
+                  document.getElementById("settings-read-only-banner").style.display = "block";
+                  document.getElementById("cfg-save-btn").disabled = true;
+                  return res.json();
+                });
+            });
+        })
+        .then(cfg => {
+          if (cfg) {
+            document.getElementById("cfg-start-time").value = cfg.office_start_time || "09:00";
+            document.getElementById("cfg-end-time").value = cfg.office_end_time || "17:00";
+            document.getElementById("cfg-liveness").checked = cfg.liveness_challenge_enabled !== false;
+            document.getElementById("cfg-network").checked = cfg.validate_office_network !== false;
+            document.getElementById("cfg-subnet").value = cfg.allowed_local_subnet || "192.168";
+            document.getElementById("cfg-owner-name").value = cfg.owner_name || "Sarthak Tripathy";
+            document.getElementById("cfg-owner-exempt").checked = cfg.owner_exempt_late !== false;
+            
+            document.getElementById("cfg-subnet-box").style.display = (cfg.validate_office_network !== false) ? "block" : "none";
+          }
+        })
+        .catch(err => {
+          console.warn("Failed to load config file: ", err.message);
+        });
+    }
+
+    function saveConfig() {
+      if (!hasLocalServer) {
+        alert("Cannot save: Kiosk Local API server is not running or unreachable.");
+        return;
+      }
+      
+      const payload = {
+        owner_name: document.getElementById("cfg-owner-name").value.trim(),
+        owner_exempt_late: document.getElementById("cfg-owner-exempt").checked,
+        office_start_time: document.getElementById("cfg-start-time").value.trim(),
+        office_end_time: document.getElementById("cfg-end-time").value.trim(),
+        liveness_challenge_enabled: document.getElementById("cfg-liveness").checked,
+        validate_office_network: document.getElementById("cfg-network").checked,
+        allowed_local_subnet: document.getElementById("cfg-subnet").value.trim()
+      };
+      
+      const btn = document.getElementById("cfg-save-btn");
+      btn.innerText = "Saving...";
+      btn.disabled = true;
+      
+      fetch("http://localhost:5000/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(res => {
+        if (!res.ok) throw new Error("Status " + res.status);
+        return res.json();
+      })
+      .then(() => {
+        alert("Configuration saved and hot-reloaded successfully!");
+      })
+      .catch(err => {
+        alert("Failed to save configuration: " + err.message);
+      })
+      .finally(() => {
+        btn.innerText = "Save Configuration";
+        btn.disabled = false;
+        loadConfig();
+      });
     }
   </script>
 </body>

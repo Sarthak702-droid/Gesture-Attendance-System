@@ -140,6 +140,10 @@ def main():
             continue
             
         frame_counter += 1
+        
+        # Hot-reload dynamic dashboard configurations periodically
+        if frame_counter % 30 == 0:
+            config.reload_config()
         if frame_counter % 30 == 0:
             import threading
             threading.Thread(target=check_remote_alarm_command, daemon=True).start()
@@ -154,7 +158,6 @@ def main():
         if remote_alarm_active:
             # Play siren beep
             import threading
-            from utils import play_beep_sound
             if frame_counter % 15 == 0:
                 threading.Thread(target=play_beep_sound, args=(False,), daemon=True).start()
                 
@@ -573,7 +576,7 @@ def main():
                 excuse_filename = ""
                 excuse_path = ""
                 
-                if pending_status in ["IN", "URGENT_RETURN"] and not is_owner:
+                if pending_status in ["IN", "URGENT_RETURN"] and not (is_owner and getattr(config, "OWNER_EXEMPT_LATE", True)):
                     office_start_str = getattr(config, "OFFICE_START_TIME", "09:00")
                     try:
                         from datetime import datetime

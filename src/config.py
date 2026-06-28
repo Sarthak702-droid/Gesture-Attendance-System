@@ -44,4 +44,32 @@ VALIDATE_OFFICE_NETWORK = True
 ALLOWED_LOCAL_SUBNET = "192.168"
 LIVENESS_CHALLENGE_ENABLED = True
 
+# Load dynamic configurations at startup
+import json
+import os
+config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "config.json")
+if not os.path.exists(config_path):
+    config_path = os.path.join("data", "config.json")
+
+OWNER_EXEMPT_LATE = True
+
+def reload_config():
+    global OWNER_NAME, OWNER_EXEMPT_LATE, OFFICE_START_TIME, OFFICE_END_TIME
+    global LIVENESS_CHALLENGE_ENABLED, VALIDATE_OFFICE_NETWORK, ALLOWED_LOCAL_SUBNET
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as _f:
+                _dyn_config = json.load(_f)
+                OWNER_NAME = _dyn_config.get("owner_name", OWNER_NAME)
+                OWNER_EXEMPT_LATE = _dyn_config.get("owner_exempt_late", OWNER_EXEMPT_LATE)
+                OFFICE_START_TIME = _dyn_config.get("office_start_time", OFFICE_START_TIME)
+                OFFICE_END_TIME = _dyn_config.get("office_end_time", OFFICE_END_TIME)
+                LIVENESS_CHALLENGE_ENABLED = _dyn_config.get("liveness_challenge_enabled", LIVENESS_CHALLENGE_ENABLED)
+                VALIDATE_OFFICE_NETWORK = _dyn_config.get("validate_office_network", VALIDATE_OFFICE_NETWORK)
+                ALLOWED_LOCAL_SUBNET = _dyn_config.get("allowed_local_subnet", ALLOWED_LOCAL_SUBNET)
+        except Exception as _e:
+            print(f"[WARNING] Failed to load dynamic config from config.json: {_e}")
+
+reload_config()
+
 
