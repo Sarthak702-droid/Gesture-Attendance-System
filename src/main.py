@@ -17,7 +17,23 @@ def get_student_name():
     name = input("Enter Employee Name or ID (Press ENTER for Guest): ").strip()
     if not name:
         name = "Guest_Employee"
-    print(f"[INFO] System initialized for employee: {name.upper()}")
+        
+    is_owner_role = False
+    owner_name = getattr(config, "OWNER_NAME", "Sarthak Tripathy").strip().lower()
+    if name.lower() == owner_name:
+        print("\n[DEMO CONFIG] Select Mode for Sarthak Tripathy:")
+        print("  [1] Owner Mode (VIP Bypass)")
+        print("  [2] Employee Mode (Strict Liveness & Late Excuse)")
+        choice = input("Select option (1 or 2, default is 1): ").strip()
+        if choice == "2":
+            is_owner_role = False
+            print(f"[INFO] System initialized for employee: {name.upper()} (Employee Mode)")
+        else:
+            is_owner_role = True
+            print(f"[INFO] System initialized for employee: {name.upper()} (Owner Mode)")
+    else:
+        print(f"[INFO] System initialized for employee: {name.upper()}")
+        
     print("[INFO] Instructions:")
     print("  👍 Thumbs Up   -> Select 'IN' (Check-In)")
     print("  ✌️ Peace Sign  -> Select 'OUT' (Check-Out)")
@@ -26,7 +42,7 @@ def get_student_name():
     print("  ✋ Open Palm  -> 'CONFIRM' (Logs to Excel and Closes)")
     print("  ✊ Fist        -> 'CANCEL' pending state")
     print("="*50 + "\n")
-    return name
+    return name, is_owner_role
 
 remote_alarm_active = False
 
@@ -44,7 +60,7 @@ def check_remote_alarm_command():
 
 def main():
     # Prompt for employee name
-    employee_name = get_student_name()
+    employee_name, is_owner = get_student_name()
     
     # Play login voice greeting in Odia (runs asynchronously in a thread)
     try:
@@ -112,10 +128,7 @@ def main():
     challenge_step = 0
     challenge_gestures = []
 
-    is_owner = False
-    owner_name = getattr(config, "OWNER_NAME", "Sarthak Tripathy").strip().lower()
-    if owner_name in employee_name.lower() or employee_name.lower() in owner_name:
-        is_owner = True
+    # Role is_owner is preserved from startup console selection
     
     print(f"[INFO] Attendance ready. Show a selection gesture to begin.")
     
@@ -560,7 +573,7 @@ def main():
                 excuse_filename = ""
                 excuse_path = ""
                 
-                if pending_status in ["IN", "URGENT_RETURN"]:
+                if pending_status in ["IN", "URGENT_RETURN"] and not is_owner:
                     office_start_str = getattr(config, "OFFICE_START_TIME", "09:00")
                     try:
                         from datetime import datetime
